@@ -38,7 +38,7 @@ export class User {
   @Column({ nullable: true })
   avatarUrl: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   otpHash: string | null;
 
   @Column({ type: 'timestamp', nullable: true })
@@ -47,7 +47,6 @@ export class User {
   @Column({ type: 'timestamp', nullable: true })
   lastLoginAt: Date;
 
-  // Programme de fidélité (points non monétaires)
   @Column({ type: 'int', default: 0 })
   loyaltyPoints: number;
 
