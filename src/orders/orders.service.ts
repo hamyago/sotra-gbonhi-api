@@ -13,8 +13,6 @@ export class OrdersService {
   constructor(
     @InjectRepository(Order)
     private readonly ordersRepository: Repository<Order>,
-    @InjectRepository(Ticket)
-    private readonly ticketRepository: Repository<Ticket>,
     private readonly eventsService: EventsService,
     private readonly qrService: QrService,
     private readonly dataSource: DataSource,
@@ -34,18 +32,22 @@ export class OrdersService {
 
     const reference = `SGB-${uuidv4().substring(0, 8).toUpperCase()}`;
 
+    // Créer la commande SANS QR (on le génère après avoir l'ID)
     const order = this.ordersRepository.create({
       ...dto,
       reference,
       totalAmount,
       status: OrderStatus.PENDING,
-      qrCodeData: '',
-      userId,
+      userId: userId || null,
+      qrCodeData: 'PENDING',
     });
 
-    order.qrCodeData = this.qrService.generateTicketQr(order.id || reference);
+    // Save pour obtenir l'ID
+    const savedOrder = await this.ordersRepository.save(order);
 
-    return this.ordersRepository.save(order);
+    // Générer le QR de la commande avec l'ID réel
+    savedOrder.qrCodeData = this.qrService.generateTicketQr(savedOrder.id);
+    return this.ordersRepository.save(savedOrder);
   }
 
   async findOne(id: string): Promise<Order> {
@@ -62,9 +64,6 @@ export class OrdersService {
     });
   }
 
-  /**
-   * Marque la commande comme payée ET génère les tickets (avec QR individuels)
-   */
   async markAsPaid(
     id: string,
     paymentProvider: PaymentProvider,
@@ -85,54 +84,58 @@ export class OrdersService {
       order.paymentProvider = paymentProvider;
       order.paymentTransactionId = transactionId;
 
-      // Générer les tickets
       const tickets: Ticket[] = [];
-      for (let i = 0; i < order.ticketQuantity; i++) {
+
+      // Fonction helper pour créer un ticket avec QR unique
+      const createTicketWithQr = async (
+        ticketData: Partial<Ticket>,
+      ): Promise<Ticket> => {
         const ticket = manager.create(Ticket, {
+          ...ticketData,
+          qrCode: `TEMP-${uuidv4()}`, // QR temporaire unique
+        });
+        const saved = await manager.save(ticket);
+        saved.qrCode = this.qrService.generateTicketQr(saved.id);
+        return manager.save(saved);
+      };
+
+      // Créer les tickets d'entrée
+      for (let i = 0; i < order.ticketQuantity; i++) {
+        const ticket = await createTicketWithQr({
           orderId: order.id,
-          ownerId: order.userId,
+          ownerId: order.userId || null,
           type: TicketType.TICKET,
           status: TicketStatus.VALID,
           passengerName: order.customerName,
           passengerPhone: order.customerPhone,
-          qrCode: '',
         });
-        const savedTicket = await manager.save(ticket);
-        savedTicket.qrCode = this.qrService.generateTicketQr(savedTicket.id);
-        await manager.save(savedTicket);
-        tickets.push(savedTicket);
+        tickets.push(ticket);
       }
 
+      // Créer les tickets de transport
       if (order.hasTransport) {
         for (let i = 0; i < order.ticketQuantity; i++) {
-          const t = manager.create(Ticket, {
+          const ticket = await createTicketWithQr({
             orderId: order.id,
-            ownerId: order.userId,
+            ownerId: order.userId || null,
             type: TicketType.TRANSPORT,
             status: TicketStatus.VALID,
             passengerName: order.customerName,
             passengerPhone: order.customerPhone,
-            qrCode: '',
           });
-          const saved = await manager.save(t);
-          saved.qrCode = this.qrService.generateTicketQr(saved.id);
-          await manager.save(saved);
-          tickets.push(saved);
+          tickets.push(ticket);
         }
       }
 
+      // Créer le ticket de parking (1 seul pour toute la commande)
       if (order.hasParking) {
-        const t = manager.create(Ticket, {
+        const ticket = await createTicketWithQr({
           orderId: order.id,
-          ownerId: order.userId,
+          ownerId: order.userId || null,
           type: TicketType.PARKING,
           status: TicketStatus.VALID,
-          qrCode: '',
         });
-        const saved = await manager.save(t);
-        saved.qrCode = this.qrService.generateTicketQr(saved.id);
-        await manager.save(saved);
-        tickets.push(saved);
+        tickets.push(ticket);
       }
 
       await manager.save(order);
