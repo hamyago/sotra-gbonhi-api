@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Order, OrderStatus, PaymentProvider } from './entities/order.entity';
@@ -10,6 +10,8 @@ import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     @InjectRepository(Order)
     private readonly ordersRepository: Repository<Order>,
@@ -32,7 +34,6 @@ export class OrdersService {
 
     const reference = `SGB-${uuidv4().substring(0, 8).toUpperCase()}`;
 
-    // Créer la commande SANS QR (on le génère après avoir l'ID)
     const order = this.ordersRepository.create({
       ...dto,
       reference,
@@ -42,10 +43,7 @@ export class OrdersService {
       qrCodeData: 'PENDING',
     });
 
-    // Save pour obtenir l'ID
     const savedOrder = await this.ordersRepository.save(order);
-
-    // Générer le QR de la commande avec l'ID réel
     savedOrder.qrCodeData = this.qrService.generateTicketQr(savedOrder.id);
     return this.ordersRepository.save(savedOrder);
   }
@@ -79,6 +77,8 @@ export class OrdersService {
         throw new BadRequestException('Commande déjà payée');
       }
 
+      this.logger.log(`markAsPaid: order.id=${order.id}, userId=${order.userId}`);
+
       order.status = OrderStatus.PAID;
       order.paidAt = new Date();
       order.paymentProvider = paymentProvider;
@@ -86,56 +86,52 @@ export class OrdersService {
 
       const tickets: Ticket[] = [];
 
-      // Fonction helper pour créer un ticket avec QR unique
-      const createTicketWithQr = async (
-        ticketData: Partial<Ticket>,
-      ): Promise<Ticket> => {
-        const ticket = manager.create(Ticket, {
-          ...ticketData,
-          qrCode: `TEMP-${uuidv4()}`, // QR temporaire unique
-        });
-        const saved = await manager.save(ticket);
-        saved.qrCode = this.qrService.generateTicketQr(saved.id);
-        return manager.save(saved);
-      };
-
-      // Créer les tickets d'entrée
       for (let i = 0; i < order.ticketQuantity; i++) {
-        const ticket = await createTicketWithQr({
-          orderId: order.id,
+        const ticket = manager.create(Ticket, {
+          order: order,
           ownerId: order.userId || null,
           type: TicketType.TICKET,
           status: TicketStatus.VALID,
           passengerName: order.customerName,
           passengerPhone: order.customerPhone,
+          qrCode: `TEMP-${uuidv4()}`,
         });
-        tickets.push(ticket);
+        const saved = await manager.save(ticket);
+        saved.qrCode = this.qrService.generateTicketQr(saved.id);
+        await manager.save(saved);
+        tickets.push(saved);
       }
 
-      // Créer les tickets de transport
       if (order.hasTransport) {
         for (let i = 0; i < order.ticketQuantity; i++) {
-          const ticket = await createTicketWithQr({
-            orderId: order.id,
+          const ticket = manager.create(Ticket, {
+            order: order,
             ownerId: order.userId || null,
             type: TicketType.TRANSPORT,
             status: TicketStatus.VALID,
             passengerName: order.customerName,
             passengerPhone: order.customerPhone,
+            qrCode: `TEMP-${uuidv4()}`,
           });
-          tickets.push(ticket);
+          const saved = await manager.save(ticket);
+          saved.qrCode = this.qrService.generateTicketQr(saved.id);
+          await manager.save(saved);
+          tickets.push(saved);
         }
       }
 
-      // Créer le ticket de parking (1 seul pour toute la commande)
       if (order.hasParking) {
-        const ticket = await createTicketWithQr({
-          orderId: order.id,
+        const ticket = manager.create(Ticket, {
+          order: order,
           ownerId: order.userId || null,
           type: TicketType.PARKING,
           status: TicketStatus.VALID,
+          qrCode: `TEMP-${uuidv4()}`,
         });
-        tickets.push(ticket);
+        const saved = await manager.save(ticket);
+        saved.qrCode = this.qrService.generateTicketQr(saved.id);
+        await manager.save(saved);
+        tickets.push(saved);
       }
 
       await manager.save(order);
