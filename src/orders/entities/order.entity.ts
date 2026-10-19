@@ -8,6 +8,8 @@ import {
   OneToMany,
 } from 'typeorm';
 import { Event } from '../../events/entities/event.entity';
+import { User } from '../../users/entities/user.entity';
+import { Ticket } from '../../tickets/entities/ticket.entity';
 
 export enum OrderStatus {
   PENDING = 'PENDING',
@@ -32,7 +34,14 @@ export class Order {
   id: string;
 
   @Column({ unique: true })
-  reference: string; // ex: SGB-XXXXXXXX
+  reference: string;
+
+  @ManyToOne(() => User, (user) => user.orders)
+  @JoinColumn({ name: 'userId' })
+  user: User;
+
+  @Column({ nullable: true })
+  userId: string;
 
   @Column()
   customerName: string;
@@ -64,8 +73,8 @@ export class Order {
   @Column({ nullable: true })
   paymentTransactionId: string;
 
-  @Column({ type: 'text' })
-  qrCodeData: string; // token signé
+  @Column({ type: 'text', nullable: true })
+  qrCodeData: string;
 
   @Column({ type: 'timestamp', nullable: true })
   paidAt: Date;
@@ -76,6 +85,9 @@ export class Order {
 
   @Column()
   eventId: string;
+
+  @OneToMany(() => Ticket, (ticket) => ticket.order, { cascade: true })
+  tickets: Ticket[];
 
   @CreateDateColumn()
   createdAt: Date;

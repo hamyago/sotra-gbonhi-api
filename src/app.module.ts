@@ -5,13 +5,12 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { EventsModule } from './events/events.module';
 import { OrdersModule } from './orders/orders.module';
+import { AuthModule } from './auth/auth.module';
+import { TicketsModule } from './tickets/tickets.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: '.env',
-    }),
+    ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -22,12 +21,14 @@ import { OrdersModule } from './orders/orders.module';
         password: config.get<string>('DATABASE_PASSWORD'),
         database: config.get<string>('DATABASE_NAME'),
         autoLoadEntities: true,
-        synchronize: true, // DEV UNIQUEMENT
+        synchronize: true,
         logging: ['error', 'warn'],
       }),
     }),
+    AuthModule,
     EventsModule,
     OrdersModule,
+    TicketsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
