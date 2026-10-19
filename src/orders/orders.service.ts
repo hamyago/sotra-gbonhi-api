@@ -87,34 +87,18 @@ export class OrdersService {
       const tickets: Ticket[] = [];
 
       const createTicket = async (type: TicketType): Promise<Ticket> => {
-        const ticketId = uuidv4();
-        const qrCode = this.qrService.generateTicketQr(ticketId);
-
-        await manager
-          .createQueryBuilder()
-          .insert()
-          .into('tickets')
-          .values({
-            id: ticketId,
-            qrCode: qrCode,
-            orderId: order.id,
-            ownerId: order.userId || null,
-            type: type,
-            status: TicketStatus.VALID,
-            passengerName: type !== TicketType.PARKING ? order.customerName : null,
-            passengerPhone: type !== TicketType.PARKING ? order.customerPhone : null,
-            scanCount: 0,
-          })
-          .execute();
-
-        const createdTicket = await manager.findOne(Ticket, {
-          where: { id: ticketId },
+        const ticket = manager.create(Ticket, {
+          orderId: order.id,
+          ownerId: order.userId || null,
+          type,
+          status: TicketStatus.VALID,
+          passengerName: type !== TicketType.PARKING ? order.customerName : null,
+          passengerPhone: type !== TicketType.PARKING ? order.customerPhone : null,
+          qrCode: `TEMP-${uuidv4()}`,
         });
-
-        if (!createdTicket) {
-          throw new BadRequestException('Échec création ticket');
-        }
-        return createdTicket;
+        const saved = await manager.save(ticket);
+        saved.qrCode = this.qrService.generateTicketQr(saved.id);
+        return manager.save(saved);
       };
 
       for (let i = 0; i < order.ticketQuantity; i++) {

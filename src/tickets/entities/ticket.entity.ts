@@ -31,12 +31,18 @@ export class Ticket {
   @Column({ type: 'varchar', unique: true })
   qrCode: string;
 
+  // ✅ Relation avec FK gérée manuellement
   @ManyToOne(() => Order, (order) => order.tickets, {
     onDelete: 'CASCADE',
     nullable: false,
+    createForeignKeyConstraints: false,  // ← SOLUTION
   })
   @JoinColumn({ name: 'orderId' })
   order: Order;
+
+  // ✅ Colonne explicite (écrite directement en SQL)
+  @Column({ type: 'uuid' })
+  orderId: string;
 
   @Column({ type: 'uuid', nullable: true })
   ownerId: string | null;
