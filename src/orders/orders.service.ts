@@ -41,7 +41,7 @@ export class OrdersService {
       status: OrderStatus.PENDING,
       userId: userId || null,
       qrCodeData: 'PENDING',
-    } as Partial<Order>);
+    } as any);
 
     const savedOrder = await this.ordersRepository.save(order);
     savedOrder.qrCodeData = this.qrService.generateTicketQr(savedOrder.id);
@@ -77,7 +77,7 @@ export class OrdersService {
         throw new BadRequestException('Commande déjà payée');
       }
 
-      this.logger.log(`markAsPaid: order.id=${order.id}, userId=${order.userId}`);
+      this.logger.log(`markAsPaid: order.id=${order.id}`);
 
       order.status = OrderStatus.PAID;
       order.paidAt = new Date();
@@ -87,15 +87,16 @@ export class OrdersService {
       const tickets: Ticket[] = [];
 
       const createTicket = async (type: TicketType): Promise<Ticket> => {
+        // IMPORTANT : passer l'OBJET order (avec id), pas orderId
         const ticket = manager.create(Ticket, {
-          orderId: order.id,
-          ownerId: order.userId,
+          order: { id: order.id } as Order,  // ← clé du fix
+          ownerId: order.userId || null,
           type,
           status: TicketStatus.VALID,
           passengerName: type !== TicketType.PARKING ? order.customerName : null,
           passengerPhone: type !== TicketType.PARKING ? order.customerPhone : null,
           qrCode: `TEMP-${uuidv4()}`,
-        } as Partial<Ticket>);
+        } as any);
         const saved = await manager.save(ticket);
         saved.qrCode = this.qrService.generateTicketQr(saved.id);
         return manager.save(saved);
