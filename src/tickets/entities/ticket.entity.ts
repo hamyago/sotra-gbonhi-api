@@ -28,7 +28,7 @@ export class Ticket {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ unique: true })
+  @Column({ type: 'varchar', unique: true })
   qrCode: string;
 
   @ManyToOne(() => Order, (order) => order.tickets, {
@@ -54,25 +54,25 @@ export class Ticket {
   @Column({ type: 'enum', enum: TicketStatus, default: TicketStatus.VALID })
   status: TicketStatus;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   seatNumber: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   passengerName: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   passengerPhone: string | null;
 
   @Column({ type: 'timestamp', nullable: true })
   usedAt: Date | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   usedBy: string | null;
 
   @Column({ type: 'int', default: 0 })
   scanCount: number;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   sharedVia: string | null;
 
   @Column({ type: 'timestamp', nullable: true })

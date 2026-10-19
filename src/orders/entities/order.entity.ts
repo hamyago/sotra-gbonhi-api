@@ -33,7 +33,7 @@ export class Order {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ unique: true })
+  @Column({ type: 'varchar', unique: true })
   reference: string;
 
   @ManyToOne(() => User, (user) => user.orders, { nullable: true })
@@ -43,13 +43,13 @@ export class Order {
   @Column({ type: 'uuid', nullable: true })
   userId: string | null;
 
-  @Column()
+  @Column({ type: 'varchar' })
   customerName: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   customerPhone: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   customerEmail: string | null;
 
   @Column({ type: 'int' })
@@ -70,7 +70,7 @@ export class Order {
   @Column({ type: 'enum', enum: PaymentProvider, nullable: true })
   paymentProvider: PaymentProvider | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   paymentTransactionId: string | null;
 
   @Column({ type: 'text', nullable: true })
@@ -83,7 +83,7 @@ export class Order {
   @JoinColumn({ name: 'eventId' })
   event: Event;
 
-  @Column()
+  @Column({ type: 'uuid' })
   eventId: string;
 
   @OneToMany(() => Ticket, (ticket) => ticket.order, { cascade: true })
