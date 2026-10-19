@@ -34,16 +34,16 @@ export class OrdersService {
 
     const reference = `SGB-${uuidv4().substring(0, 8).toUpperCase()}`;
 
-    const order = this.ordersRepository.create({
+    const order: Order = this.ordersRepository.create({
       ...dto,
       reference,
       totalAmount,
       status: OrderStatus.PENDING,
       userId: userId || null,
       qrCodeData: 'PENDING',
-    } as any);
+    });
 
-    const savedOrder = await this.ordersRepository.save(order);
+    const savedOrder: Order = await this.ordersRepository.save(order);
     savedOrder.qrCodeData = this.qrService.generateTicketQr(savedOrder.id);
     return this.ordersRepository.save(savedOrder);
   }
@@ -87,17 +87,16 @@ export class OrdersService {
       const tickets: Ticket[] = [];
 
       const createTicket = async (type: TicketType): Promise<Ticket> => {
-        // IMPORTANT : passer l'OBJET order (avec id), pas orderId
-        const ticket = manager.create(Ticket, {
-          order: { id: order.id } as Order,  // ← clé du fix
+        const ticket: Ticket = manager.create(Ticket, {
+          order: { id: order.id } as Order,
           ownerId: order.userId || null,
           type,
           status: TicketStatus.VALID,
           passengerName: type !== TicketType.PARKING ? order.customerName : null,
           passengerPhone: type !== TicketType.PARKING ? order.customerPhone : null,
           qrCode: `TEMP-${uuidv4()}`,
-        } as any);
-        const saved = await manager.save(ticket);
+        });
+        const saved: Ticket = await manager.save(ticket);
         saved.qrCode = this.qrService.generateTicketQr(saved.id);
         return manager.save(saved);
       };
@@ -117,7 +116,7 @@ export class OrdersService {
       }
 
       await manager.save(order);
-      return { ...order, tickets };
+      return { ...order, tickets } as Order;
     });
   }
 
