@@ -41,7 +41,7 @@ export class OrdersService {
       status: OrderStatus.PENDING,
       userId: userId || null,
       qrCodeData: 'PENDING',
-    });
+    } as Partial<Order>);
 
     const savedOrder = await this.ordersRepository.save(order);
     savedOrder.qrCodeData = this.qrService.generateTicketQr(savedOrder.id);
@@ -86,52 +86,33 @@ export class OrdersService {
 
       const tickets: Ticket[] = [];
 
-      for (let i = 0; i < order.ticketQuantity; i++) {
+      const createTicket = async (type: TicketType): Promise<Ticket> => {
         const ticket = manager.create(Ticket, {
-          order: order,
-          ownerId: order.userId || null,
-          type: TicketType.TICKET,
+          orderId: order.id,
+          ownerId: order.userId,
+          type,
           status: TicketStatus.VALID,
-          passengerName: order.customerName,
-          passengerPhone: order.customerPhone,
+          passengerName: type !== TicketType.PARKING ? order.customerName : null,
+          passengerPhone: type !== TicketType.PARKING ? order.customerPhone : null,
           qrCode: `TEMP-${uuidv4()}`,
-        });
+        } as Partial<Ticket>);
         const saved = await manager.save(ticket);
         saved.qrCode = this.qrService.generateTicketQr(saved.id);
-        await manager.save(saved);
-        tickets.push(saved);
+        return manager.save(saved);
+      };
+
+      for (let i = 0; i < order.ticketQuantity; i++) {
+        tickets.push(await createTicket(TicketType.TICKET));
       }
 
       if (order.hasTransport) {
         for (let i = 0; i < order.ticketQuantity; i++) {
-          const ticket = manager.create(Ticket, {
-            order: order,
-            ownerId: order.userId || null,
-            type: TicketType.TRANSPORT,
-            status: TicketStatus.VALID,
-            passengerName: order.customerName,
-            passengerPhone: order.customerPhone,
-            qrCode: `TEMP-${uuidv4()}`,
-          });
-          const saved = await manager.save(ticket);
-          saved.qrCode = this.qrService.generateTicketQr(saved.id);
-          await manager.save(saved);
-          tickets.push(saved);
+          tickets.push(await createTicket(TicketType.TRANSPORT));
         }
       }
 
       if (order.hasParking) {
-        const ticket = manager.create(Ticket, {
-          order: order,
-          ownerId: order.userId || null,
-          type: TicketType.PARKING,
-          status: TicketStatus.VALID,
-          qrCode: `TEMP-${uuidv4()}`,
-        });
-        const saved = await manager.save(ticket);
-        saved.qrCode = this.qrService.generateTicketQr(saved.id);
-        await manager.save(saved);
-        tickets.push(saved);
+        tickets.push(await createTicket(TicketType.PARKING));
       }
 
       await manager.save(order);

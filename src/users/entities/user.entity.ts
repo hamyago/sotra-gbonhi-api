@@ -24,10 +24,10 @@ export class User {
   phone: string;
 
   @Column({ nullable: true })
-  name: string;
+  name: string | null;
 
   @Column({ nullable: true })
-  email: string;
+  email: string | null;
 
   @Column({ type: 'enum', enum: UserRole, default: UserRole.CUSTOMER })
   role: UserRole;
@@ -36,7 +36,7 @@ export class User {
   isVerified: boolean;
 
   @Column({ nullable: true })
-  avatarUrl: string;
+  avatarUrl: string | null;
 
   @Column({ type: 'varchar', nullable: true })
   otpHash: string | null;
@@ -45,7 +45,7 @@ export class User {
   otpExpiresAt: Date | null;
 
   @Column({ type: 'timestamp', nullable: true })
-  lastLoginAt: Date;
+  lastLoginAt: Date | null;
 
   @Column({ type: 'int', default: 0 })
   loyaltyPoints: number;

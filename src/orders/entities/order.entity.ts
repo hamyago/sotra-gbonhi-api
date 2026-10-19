@@ -36,12 +36,12 @@ export class Order {
   @Column({ unique: true })
   reference: string;
 
-  @ManyToOne(() => User, (user) => user.orders)
+  @ManyToOne(() => User, (user) => user.orders, { nullable: true })
   @JoinColumn({ name: 'userId' })
-  user: User;
+  user: User | null;
 
-  @Column({ nullable: true })
-  userId: string;
+  @Column({ type: 'uuid', nullable: true })
+  userId: string | null;
 
   @Column()
   customerName: string;
@@ -50,7 +50,7 @@ export class Order {
   customerPhone: string;
 
   @Column({ nullable: true })
-  customerEmail: string;
+  customerEmail: string | null;
 
   @Column({ type: 'int' })
   ticketQuantity: number;
@@ -68,16 +68,16 @@ export class Order {
   status: OrderStatus;
 
   @Column({ type: 'enum', enum: PaymentProvider, nullable: true })
-  paymentProvider: PaymentProvider;
+  paymentProvider: PaymentProvider | null;
 
   @Column({ nullable: true })
-  paymentTransactionId: string;
+  paymentTransactionId: string | null;
 
   @Column({ type: 'text', nullable: true })
-  qrCodeData: string;
+  qrCodeData: string | null;
 
   @Column({ type: 'timestamp', nullable: true })
-  paidAt: Date;
+  paidAt: Date | null;
 
   @ManyToOne(() => Event, { eager: true })
   @JoinColumn({ name: 'eventId' })
