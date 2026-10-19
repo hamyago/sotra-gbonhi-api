@@ -38,15 +38,12 @@ export class Ticket {
   @JoinColumn({ name: 'orderId' })
   order: Order;
 
-  @Column({ type: 'uuid' })
-  orderId: string;
+  @Column({ type: 'uuid', nullable: true })
+  ownerId: string | null;
 
   @ManyToOne(() => User, { nullable: true, eager: true })
   @JoinColumn({ name: 'ownerId' })
   owner: User | null;
-
-  @Column({ type: 'uuid', nullable: true })
-  ownerId: string | null;
 
   @Column({ type: 'enum', enum: TicketType })
   type: TicketType;
