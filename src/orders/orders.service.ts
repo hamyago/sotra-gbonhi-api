@@ -77,16 +77,29 @@ export class OrdersService {
         throw new BadRequestException('Commande déjà payée');
       }
 
-      this.logger.log(`markAsPaid: order.id=${order.id}`);
+      this.logger.log(`markAsPaid: order.id=${order.id}, param id=${id}`);
 
       order.status = OrderStatus.PAID;
       order.paidAt = new Date();
       order.paymentProvider = paymentProvider;
       order.paymentTransactionId = transactionId;
 
+      const ticketTypes: TicketType[] = [];
+      for (let i = 0; i < order.ticketQuantity; i++) {
+        ticketTypes.push(TicketType.TICKET);
+      }
+      if (order.hasTransport) {
+        for (let i = 0; i < order.ticketQuantity; i++) {
+          ticketTypes.push(TicketType.TRANSPORT);
+        }
+      }
+      if (order.hasParking) {
+        ticketTypes.push(TicketType.PARKING);
+      }
+
       const tickets: Ticket[] = [];
 
-      const createTicket = async (type: TicketType): Promise<Ticket> => {
+      for (const type of ticketTypes) {
         const ticketId = uuidv4();
         const qrCode = this.qrService.generateTicketQr(ticketId);
 
@@ -96,7 +109,7 @@ export class OrdersService {
           [
             ticketId,
             qrCode,
-            order.id,
+            id,
             order.userId || null,
             type,
             TicketStatus.VALID,
@@ -113,21 +126,7 @@ export class OrdersService {
         if (!createdTicket) {
           throw new BadRequestException('Échec création ticket');
         }
-        return createdTicket;
-      };
-
-      for (let i = 0; i < order.ticketQuantity; i++) {
-        tickets.push(await createTicket(TicketType.TICKET));
-      }
-
-      if (order.hasTransport) {
-        for (let i = 0; i < order.ticketQuantity; i++) {
-          tickets.push(await createTicket(TicketType.TRANSPORT));
-        }
-      }
-
-      if (order.hasParking) {
-        tickets.push(await createTicket(TicketType.PARKING));
+        tickets.push(createdTicket);
       }
 
       await manager.save(order);
