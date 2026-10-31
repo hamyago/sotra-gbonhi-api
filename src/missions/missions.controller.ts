@@ -8,14 +8,17 @@ import {
   Delete,
   UseGuards,
   Req,
+  Query,
   ForbiddenException,
 } from '@nestjs/common';
 import { MissionsService } from './missions.service';
 import { CreateMissionDto } from './dto/create-mission.dto';
 import { UpdateMissionDto } from './dto/update-mission.dto';
+import { UpdatePositionDto } from './dto/update-position.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { MissionStatus } from './entities/mission.entity';
 
 @Controller()
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -30,8 +33,40 @@ export class MissionsController {
 
   @Get('admin/missions')
   @Roles('COORDINATOR', 'ADMIN', 'SUPER_ADMIN')
-  findAll() {
-    return this.missionsService.findAll();
+  findAll(
+    @Query('eventId') eventId?: string,
+    @Query('status') status?: MissionStatus,
+  ) {
+    return this.missionsService.findAll({ eventId, status });
+  }
+
+  @Get('admin/missions/live')
+  @Roles('COORDINATOR', 'ADMIN', 'SUPER_ADMIN')
+  async findLive() {
+    const missions = await this.missionsService.findAll({
+      status: MissionStatus.IN_PROGRESS,
+    });
+    const now = Date.now();
+    return missions
+      .filter(
+        (m) =>
+          m.currentLat != null &&
+          m.lastPositionUpdate != null &&
+          now - m.lastPositionUpdate.getTime() < 60_000,
+      )
+      .map((m) => ({
+        id: m.id,
+        name: m.name,
+        bus: m.bus ? { plate: m.bus.plate, capacity: m.bus.capacity } : null,
+        agent: m.agent
+          ? { id: m.agent.id, name: m.agent.name, matricule: m.agent.matricule }
+          : null,
+        currentPosition: {
+          latitude: Number(m.currentLat),
+          longitude: Number(m.currentLng),
+          lastUpdate: m.lastPositionUpdate,
+        },
+      }));
   }
 
   @Get('admin/missions/:id')
@@ -62,6 +97,12 @@ export class MissionsController {
   @Roles('COORDINATOR', 'ADMIN', 'SUPER_ADMIN')
   completeByAdmin(@Param('id') id: string) {
     return this.missionsService.complete(id);
+  }
+
+  @Post('admin/missions/:id/reset')
+  @Roles('COORDINATOR', 'ADMIN', 'SUPER_ADMIN')
+  reset(@Param('id') id: string) {
+    return this.missionsService.reset(id);
   }
 
   // ========== AGENT ==========
@@ -105,17 +146,20 @@ export class MissionsController {
   @Roles('AGENT')
   async updatePosition(
     @Param('id') id: string,
-    @Body() body: { latitude: number; longitude: number },
+    @Body() body: UpdatePositionDto,
     @Req() req: any,
   ) {
     const mission = await this.missionsService.findOne(id);
     if (mission.agentId !== req.user.id) {
       throw new ForbiddenException('Accès interdit à cette mission');
     }
-    return this.missionsService.updatePosition(id, body.latitude, body.longitude);
+    return this.missionsService.updatePosition(
+      id,
+      body.latitude,
+      body.longitude,
+    );
   }
 
-  // ⚡ NOUVEAU : Liste des passagers
   @Get('agent/missions/:id/passengers')
   @Roles('AGENT')
   async getMissionPassengers(@Param('id') id: string, @Req() req: any) {

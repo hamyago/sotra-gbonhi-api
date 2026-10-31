@@ -3,8 +3,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Order, OrderStatus } from '../orders/entities/order.entity';
 import { Mission } from '../missions/entities/mission.entity';
-import { PickupPoint } from '../pickup-points/entities/pickup-point.entity';
-import { User } from '../users/entities/user.entity';
 
 @Injectable()
 export class TrackingService {
@@ -13,10 +11,6 @@ export class TrackingService {
     private readonly ordersRepository: Repository<Order>,
     @InjectRepository(Mission)
     private readonly missionsRepository: Repository<Mission>,
-    @InjectRepository(PickupPoint)
-    private readonly pickupPointsRepository: Repository<PickupPoint>,
-    @InjectRepository(User)
-    private readonly usersRepository: Repository<User>,
   ) {}
 
   async userHasPaidTicket(userId: string, eventId: string): Promise<boolean> {
@@ -30,61 +24,49 @@ export class TrackingService {
     const missions = await this.missionsRepository.find({
       where: { eventId },
       order: { departureTime: 'ASC' },
+      relations: ['pickupPoints'],
     });
 
-    const missionsWithPoints = await Promise.all(
-      missions.map(async (mission) => {
-        const points = await this.pickupPointsRepository.find({
-          where: { missionId: mission.id },
-          order: { order: 'ASC' },
-        });
-
-        // Charger l'agent complet
-        let agentInfo = null;
-        if (mission.agentId) {
-          const agent = await this.usersRepository.findOne({
-            where: { id: mission.agentId },
-          });
-          if (agent) {
-            agentInfo = {
-              id: agent.id,
-              name: agent.name,
-              phone: agent.phone,
-              matricule: agent.matricule,
-              avatarUrl: agent.avatarUrl,
-            };
-          }
-        }
-
-        return {
-          id: mission.id,
-          name: mission.name,
-          status: mission.status,
-          departureTime: mission.departureTime,
-          bus: mission.bus
-            ? { plate: mission.bus.plate, capacity: mission.bus.capacity }
+    const now = Date.now();
+    return {
+      eventId,
+      missions: missions.map((m) => ({
+        id: m.id,
+        name: m.name,
+        status: m.status,
+        departureTime: m.departureTime,
+        bus: m.bus
+          ? { plate: m.bus.plate, capacity: m.bus.capacity }
+          : null,
+        agent: m.agent
+          ? {
+              id: m.agent.id,
+              name: m.agent.name,
+              phone: m.agent.phone,
+              matricule: m.agent.matricule,
+              avatarUrl: m.agent.avatarUrl,
+            }
+          : null,
+        currentPosition:
+          m.currentLat != null && m.currentLng != null
+            ? {
+                latitude: Number(m.currentLat),
+                longitude: Number(m.currentLng),
+                lastUpdate: m.lastPositionUpdate,
+                isStale: m.lastPositionUpdate
+                  ? now - m.lastPositionUpdate.getTime() > 60_000
+                  : true,
+              }
             : null,
-          agent: agentInfo,
-          currentPosition:
-            mission.currentLat != null && mission.currentLng != null
-              ? {
-                  latitude: Number(mission.currentLat),
-                  longitude: Number(mission.currentLng),
-                  lastUpdate: mission.lastPositionUpdate,
-                }
-              : null,
-          pickupPoints: points.map((p) => ({
-            id: p.id,
-            name: p.name,
-            latitude: Number(p.latitude),
-            longitude: Number(p.longitude),
-            order: p.order,
-            expectedPassengers: p.expectedPassengers,
-          })),
-        };
-      }),
-    );
-
-    return { eventId, missions: missionsWithPoints };
+        pickupPoints: m.pickupPoints.map((p) => ({
+          id: p.id,
+          name: p.name,
+          latitude: Number(p.latitude),
+          longitude: Number(p.longitude),
+          order: p.order,
+          expectedPassengers: p.expectedPassengers,
+        })),
+      })),
+    };
   }
 }

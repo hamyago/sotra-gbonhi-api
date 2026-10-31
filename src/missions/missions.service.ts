@@ -11,7 +11,16 @@ import { UpdateMissionDto } from './dto/update-mission.dto';
 import { User, UserRole } from '../users/entities/user.entity';
 import { Bus } from '../buses/entities/bus.entity';
 import { Event } from '../events/entities/event.entity';
-import { Ticket, TicketType, TicketStatus } from '../tickets/entities/ticket.entity';
+import {
+  Ticket,
+  TicketType,
+  TicketStatus,
+} from '../tickets/entities/ticket.entity';
+
+export interface MissionFilters {
+  eventId?: string;
+  status?: MissionStatus;
+}
 
 @Injectable()
 export class MissionsService {
@@ -52,8 +61,21 @@ export class MissionsService {
     return this.missionsRepository.save(mission);
   }
 
-  async findAll(): Promise<Mission[]> {
-    return this.missionsRepository.find({ order: { departureTime: 'ASC' } });
+  async findAll(filters?: MissionFilters): Promise<Mission[]> {
+    const qb = this.missionsRepository
+      .createQueryBuilder('m')
+      .leftJoinAndSelect('m.bus', 'bus')
+      .leftJoinAndSelect('m.agent', 'agent')
+      .leftJoinAndSelect('m.event', 'event')
+      .orderBy('m.departureTime', 'ASC');
+
+    if (filters?.eventId) {
+      qb.andWhere('m.eventId = :eventId', { eventId: filters.eventId });
+    }
+    if (filters?.status) {
+      qb.andWhere('m.status = :status', { status: filters.status });
+    }
+    return qb.getMany();
   }
 
   async findOne(id: string): Promise<Mission> {
@@ -87,18 +109,45 @@ export class MissionsService {
   }
 
   async start(id: string): Promise<Mission> {
-    const mission = await this.findOne(id);
-    if (mission.status !== MissionStatus.SCHEDULED) {
+    const result = await this.missionsRepository
+      .createQueryBuilder()
+      .update(Mission)
+      .set({ status: MissionStatus.IN_PROGRESS })
+      .where('id = :id AND status = :status', {
+        id,
+        status: MissionStatus.SCHEDULED,
+      })
+      .execute();
+    if (result.affected === 0) {
       throw new BadRequestException("La mission n'est pas en attente");
     }
-    mission.status = MissionStatus.IN_PROGRESS;
-    return this.missionsRepository.save(mission);
+    return this.findOne(id);
   }
 
   async complete(id: string): Promise<Mission> {
-    const mission = await this.findOne(id);
-    mission.status = MissionStatus.COMPLETED;
-    return this.missionsRepository.save(mission);
+    const result = await this.missionsRepository
+      .createQueryBuilder()
+      .update(Mission)
+      .set({ status: MissionStatus.COMPLETED })
+      .where('id = :id AND status != :status', {
+        id,
+        status: MissionStatus.COMPLETED,
+      })
+      .execute();
+    if (result.affected === 0) {
+      throw new BadRequestException('Mission déjà terminée ou introuvable');
+    }
+    return this.findOne(id);
+  }
+
+  async reset(id: string): Promise<Mission> {
+    await this.missionsRepository.update(id, {
+      status: MissionStatus.SCHEDULED,
+      currentLat: null,
+      currentLng: null,
+      lastPositionUpdate: null,
+    });
+    return this.findOne(id);
   }
 
   async updatePosition(
@@ -106,16 +155,25 @@ export class MissionsService {
     latitude: number,
     longitude: number,
   ): Promise<Mission> {
-    const mission = await this.findOne(id);
-    if (mission.status !== MissionStatus.IN_PROGRESS) {
+    const result = await this.missionsRepository
+      .createQueryBuilder()
+      .update(Mission)
+      .set({
+        currentLat: latitude,
+        currentLng: longitude,
+        lastPositionUpdate: new Date(),
+      })
+      .where('id = :id AND status = :status', {
+        id,
+        status: MissionStatus.IN_PROGRESS,
+      })
+      .execute();
+    if (result.affected === 0) {
       throw new BadRequestException(
         'La mission doit être en cours pour envoyer la position',
       );
     }
-    mission.currentLat = latitude;
-    mission.currentLng = longitude;
-    mission.lastPositionUpdate = new Date();
-    return this.missionsRepository.save(mission);
+    return this.findOne(id);
   }
 
   async remove(id: string): Promise<{ message: string }> {
@@ -124,7 +182,6 @@ export class MissionsService {
     return { message: 'Mission supprimée' };
   }
 
-  // ⚡ NOUVEAU : Liste des passagers de la mission
   async getMissionPassengers(missionId: string) {
     const mission = await this.findOne(missionId);
 
@@ -132,13 +189,14 @@ export class MissionsService {
       where: { id: mission.busId },
     });
 
-    // Récupérer tous les tickets TICKET (billets d'entrée) de l'événement
     const tickets = await this.ticketsRepository
       .createQueryBuilder('ticket')
       .leftJoinAndSelect('ticket.order', 'order')
       .leftJoinAndSelect('ticket.ticketCategory', 'category')
       .where('order.eventId = :eventId', { eventId: mission.eventId })
-      .andWhere('ticket.type = :type', { type: TicketType.TICKET })
+      .andWhere('ticket.type IN (:...types)', {
+        types: [TicketType.TICKET, TicketType.TRANSPORT],
+      })
       .andWhere('order.status = :status', { status: 'PAID' })
       .orderBy('category.sortOrder', 'ASC')
       .addOrderBy('ticket.passengerName', 'ASC')
@@ -146,6 +204,7 @@ export class MissionsService {
 
     const passengers = tickets.map((t) => ({
       ticketId: t.id,
+      type: t.type,
       passengerName: t.passengerName ?? 'Passager inconnu',
       passengerPhone: t.passengerPhone ?? '',
       categoryName: t.ticketCategory?.name ?? 'Standard',
@@ -154,8 +213,12 @@ export class MissionsService {
       scannedAt: t.usedAt,
     }));
 
-    const scanned = passengers.filter((p) => p.status === TicketStatus.USED).length;
-    const pending = passengers.filter((p) => p.status === TicketStatus.VALID).length;
+    const scanned = passengers.filter(
+      (p) => p.status === TicketStatus.USED,
+    ).length;
+    const pending = passengers.filter(
+      (p) => p.status === TicketStatus.VALID,
+    ).length;
 
     return {
       missionId: mission.id,
