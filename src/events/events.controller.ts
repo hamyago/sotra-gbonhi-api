@@ -21,23 +21,50 @@ import { UpdateEventDto } from './dto/update-event.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { EventStatus } from './entities/event.entity';
 
 @Controller()
 export class EventsController {
   constructor(private readonly eventsService: EventsService) {}
 
-  // PUBLIC
+  // ========== PUBLIC ==========
   @Get('events')
-  findAll() {
-    return this.eventsService.findAll();
+  findAllPublic() {
+    return this.eventsService.findAllPublic();
   }
 
   @Get('events/:id')
-  findOne(@Param('id') id: string) {
+  findOnePublic(@Param('id') id: string) {
+    return this.eventsService.findOnePublic(id);
+  }
+
+  @Get('events/:id/categories')
+  getCategoriesPublic(@Param('id') id: string) {
+    return this.eventsService.getCategoriesPublic(id);
+  }
+
+  // ========== ADMIN ==========
+  @Get('admin/events')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'SUPER_ADMIN', 'COORDINATOR')
+  findAllAdmin() {
+    return this.eventsService.findAllAdmin();
+  }
+
+  @Get('admin/events/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'SUPER_ADMIN', 'COORDINATOR')
+  findOneAdmin(@Param('id') id: string) {
     return this.eventsService.findOne(id);
   }
 
-  // ADMIN
+  @Get('admin/events/:id/categories')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'SUPER_ADMIN', 'COORDINATOR')
+  getCategoriesAdmin(@Param('id') id: string) {
+    return this.eventsService.getCategoriesAdmin(id);
+  }
+
   @Post('admin/events')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ADMIN', 'SUPER_ADMIN')
@@ -55,7 +82,10 @@ export class EventsController {
   @Patch('admin/events/:id/status')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ADMIN', 'SUPER_ADMIN')
-  updateStatus(@Param('id') id: string, @Body('status') status: string) {
+  updateStatus(
+    @Param('id') id: string,
+    @Body('status') status: EventStatus,
+  ) {
     return this.eventsService.updateStatus(id, status);
   }
 
@@ -66,7 +96,6 @@ export class EventsController {
     return this.eventsService.remove(id);
   }
 
-  // Upload image pour un événement
   @Post('admin/events/:id/image')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ADMIN', 'SUPER_ADMIN')

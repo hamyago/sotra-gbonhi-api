@@ -8,6 +8,21 @@ import {
 } from 'typeorm';
 import { EventTicketCategory } from './event-ticket-category.entity';
 
+export enum EventCategory {
+  FOOTBALL = 'FOOTBALL',
+  CONCERT = 'CONCERT',
+  FESTIVAL = 'FESTIVAL',
+  CONFERENCE = 'CONFERENCE',
+}
+
+export enum EventStatus {
+  DRAFT = 'DRAFT',
+  PUBLISHED = 'PUBLISHED',
+  SOLD_OUT = 'SOLD_OUT',
+  CANCELLED = 'CANCELLED',
+  COMPLETED = 'COMPLETED',
+}
+
 @Entity('events')
 export class Event {
   @PrimaryGeneratedColumn('uuid')
@@ -19,8 +34,8 @@ export class Event {
   @Column({ type: 'text', nullable: true })
   description: string | null;
 
-  @Column({ type: 'varchar' })
-  category: string;
+  @Column({ type: 'enum', enum: EventCategory })
+  category: EventCategory;
 
   @Column({ type: 'timestamp' })
   date: Date;
@@ -46,8 +61,8 @@ export class Event {
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
   parkingPrice: number;
 
-  @Column({ type: 'varchar', default: 'DRAFT' })
-  status: string;
+  @Column({ type: 'enum', enum: EventStatus, default: EventStatus.DRAFT })
+  status: EventStatus;
 
   @OneToMany(() => EventTicketCategory, (cat) => cat.event, { cascade: true })
   ticketCategories: EventTicketCategory[];

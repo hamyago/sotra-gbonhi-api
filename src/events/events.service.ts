@@ -1,7 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Event } from './entities/event.entity';
+import { DataSource, Repository } from 'typeorm';
+import { Event, EventStatus } from './entities/event.entity';
 import { EventTicketCategory } from './entities/event-ticket-category.entity';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
@@ -13,9 +17,18 @@ export class EventsService {
     private readonly eventsRepo: Repository<Event>,
     @InjectRepository(EventTicketCategory)
     private readonly categoriesRepo: Repository<EventTicketCategory>,
+    private readonly dataSource: DataSource,
   ) {}
 
-  async findAll(): Promise<Event[]> {
+  async findAllPublic(): Promise<Event[]> {
+    return this.eventsRepo.find({
+      where: { status: EventStatus.PUBLISHED },
+      relations: ['ticketCategories'],
+      order: { date: 'ASC' },
+    });
+  }
+
+  async findAllAdmin(): Promise<Event[]> {
     return this.eventsRepo.find({
       relations: ['ticketCategories'],
       order: { date: 'ASC' },
@@ -31,45 +44,53 @@ export class EventsService {
     return event;
   }
 
+  async findOnePublic(id: string): Promise<Event> {
+    const event = await this.findOne(id);
+    if (event.status !== EventStatus.PUBLISHED) {
+      throw new NotFoundException('Événement introuvable');
+    }
+    return event;
+  }
+
   async create(dto: CreateEventDto): Promise<Event> {
-    // Vérifier qu'il y a au moins une catégorie
     if (!dto.ticketCategories || dto.ticketCategories.length === 0) {
-      throw new NotFoundException('Au moins une catégorie de billet est requise');
+      throw new BadRequestException(
+        'Au moins une catégorie de billet est requise',
+      );
     }
 
-    // Créer l'événement
-    const event = this.eventsRepo.create({
-      title: dto.title,
-      description: dto.description ?? null,
-      category: dto.category,
-      date: new Date(dto.date),
-      venue: dto.venue,
-      venueAddress: dto.venueAddress ?? null,
-      imageUrl: dto.imageUrl ?? null,
-      transportPrice: dto.transportPrice,
-      parkingPrice: dto.parkingPrice,
-      status: dto.status ?? 'DRAFT',
-    });
-    const saved = await this.eventsRepo.save(event);
-
-    // Créer les catégories
-    for (let i = 0; i < dto.ticketCategories.length; i++) {
-      const catDto = dto.ticketCategories[i];
-      const cat = this.categoriesRepo.create({
-        eventId: saved.id,
-        name: catDto.name,
-        description: catDto.description ?? null,
-        price: catDto.price,
-        totalSeats: catDto.totalSeats,
-        availableSeats: catDto.totalSeats,
-        color: catDto.color ?? '#009E49',
-        sortOrder: catDto.sortOrder ?? i,
-        isActive: true,
+    return this.dataSource.transaction(async (manager) => {
+      const event = manager.create(Event, {
+        title: dto.title,
+        description: dto.description ?? null,
+        category: dto.category,
+        date: new Date(dto.date),
+        venue: dto.venue,
+        venueAddress: dto.venueAddress ?? null,
+        imageUrl: dto.imageUrl ?? null,
+        transportPrice: dto.transportPrice,
+        parkingPrice: dto.parkingPrice,
+        status: dto.status ?? EventStatus.DRAFT,
       });
-      await this.categoriesRepo.save(cat);
-    }
+      const saved = await manager.save(event);
 
-    return this.findOne(saved.id);
+      const cats = dto.ticketCategories.map((c, i) =>
+        manager.create(EventTicketCategory, {
+          eventId: saved.id,
+          name: c.name,
+          description: c.description ?? null,
+          price: c.price,
+          totalSeats: c.totalSeats,
+          availableSeats: c.totalSeats,
+          color: c.color ?? '#009E49',
+          sortOrder: c.sortOrder ?? i,
+          isActive: true,
+        }),
+      );
+      await manager.save(cats);
+
+      return this.findOne(saved.id);
+    });
   }
 
   async update(id: string, dto: UpdateEventDto): Promise<Event> {
@@ -82,15 +103,17 @@ export class EventsService {
     if (dto.venue !== undefined) event.venue = dto.venue;
     if (dto.venueAddress !== undefined) event.venueAddress = dto.venueAddress;
     if (dto.imageUrl !== undefined) event.imageUrl = dto.imageUrl;
-    if (dto.transportPrice !== undefined) event.transportPrice = dto.transportPrice;
-    if (dto.parkingPrice !== undefined) event.parkingPrice = dto.parkingPrice;
+    if (dto.transportPrice !== undefined)
+      event.transportPrice = dto.transportPrice;
+    if (dto.parkingPrice !== undefined)
+      event.parkingPrice = dto.parkingPrice;
     if (dto.status !== undefined) event.status = dto.status;
 
     await this.eventsRepo.save(event);
     return this.findOne(id);
   }
 
-  async updateStatus(id: string, status: string): Promise<Event> {
+  async updateStatus(id: string, status: EventStatus): Promise<Event> {
     const event = await this.findOne(id);
     event.status = status;
     await this.eventsRepo.save(event);
@@ -103,7 +126,14 @@ export class EventsService {
     return { message: 'Événement supprimé' };
   }
 
-  async getCategories(eventId: string): Promise<EventTicketCategory[]> {
+  async getCategoriesPublic(eventId: string): Promise<EventTicketCategory[]> {
+    return this.categoriesRepo.find({
+      where: { eventId, isActive: true },
+      order: { sortOrder: 'ASC' },
+    });
+  }
+
+  async getCategoriesAdmin(eventId: string): Promise<EventTicketCategory[]> {
     return this.categoriesRepo.find({
       where: { eventId },
       order: { sortOrder: 'ASC' },

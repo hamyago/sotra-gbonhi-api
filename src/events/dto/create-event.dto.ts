@@ -7,8 +7,13 @@ import {
   ValidateNested,
   Min,
   MaxLength,
+  Matches,
+  IsEnum,
+  IsInt,
+  Max,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { EventCategory, EventStatus } from '../entities/event.entity';
 
 export class CreateTicketCategoryDto {
   @IsString()
@@ -24,15 +29,19 @@ export class CreateTicketCategoryDto {
   @Min(0)
   price: number;
 
-  @IsNumber()
+  @IsInt()
   @Min(0)
+  @Max(100000)
   totalSeats: number;
 
-  @IsString()
+  @Matches(/^#[0-9A-Fa-f]{6}$/, {
+    message: 'La couleur doit être au format hexadécimal #RRGGBB',
+  })
   @IsOptional()
   color?: string;
 
-  @IsNumber()
+  @IsInt()
+  @Min(0)
   @IsOptional()
   sortOrder?: number;
 }
@@ -46,8 +55,8 @@ export class CreateEventDto {
   @IsOptional()
   description?: string;
 
-  @IsString()
-  category: string;
+  @IsEnum(EventCategory)
+  category: EventCategory;
 
   @IsDateString()
   date: string;
@@ -71,9 +80,9 @@ export class CreateEventDto {
   @Min(0)
   parkingPrice: number;
 
-  @IsString()
+  @IsEnum(EventStatus)
   @IsOptional()
-  status?: string;
+  status?: EventStatus;
 
   @IsArray()
   @ValidateNested({ each: true })
