@@ -1,7 +1,8 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Order, OrderStatus, PaymentProvider } from './entities/order.entity';
+import { OrderItem } from './entities/order-item.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { EventsService } from '../events/events.service';
 import { QrService } from '../tickets/qr.service';
@@ -10,137 +11,187 @@ import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
 export class OrdersService {
-  private readonly logger = new Logger(OrdersService.name);
-
   constructor(
     @InjectRepository(Order)
     private readonly ordersRepository: Repository<Order>,
+    @InjectRepository(OrderItem)
+    private readonly itemsRepository: Repository<OrderItem>,
     private readonly eventsService: EventsService,
     private readonly qrService: QrService,
     private readonly dataSource: DataSource,
   ) {}
 
-  async create(dto: CreateOrderDto, userId?: string): Promise<Order> {
+  async create(dto: CreateOrderDto, userId: string): Promise<Order> {
     const event = await this.eventsService.findOne(dto.eventId);
+    if (!event) throw new BadRequestException('Événement introuvable');
 
-    if (event.availableSeats < dto.ticketQuantity) {
-      throw new BadRequestException('Pas assez de places disponibles');
+    // Vérifier les catégories et calculer le total
+    let totalAmount = 0;
+    const items: OrderItem[] = [];
+
+    for (const itemDto of dto.items) {
+      const category = event.ticketCategories.find(
+        (c) => c.id === itemDto.ticketCategoryId,
+      );
+      if (!category) {
+        throw new BadRequestException(
+          `Catégorie ${itemDto.ticketCategoryId} introuvable`,
+        );
+      }
+      if (!category.isActive) {
+        throw new BadRequestException(
+          `Catégorie ${category.name} désactivée`,
+        );
+      }
+      if (category.availableSeats < itemDto.quantity) {
+        throw new BadRequestException(
+          `Pas assez de places disponibles pour ${category.name}`,
+        );
+      }
+
+      const subtotal = Number(category.price) * itemDto.quantity;
+      totalAmount += subtotal;
+
+      const item = this.itemsRepository.create({
+        ticketCategoryId: category.id,
+        quantity: itemDto.quantity,
+        unitPrice: Number(category.price),
+        subtotal,
+      });
+      items.push(item);
     }
 
-    const totalAmount =
-      dto.ticketQuantity * Number(event.startingPrice) +
-      (dto.hasTransport ? Number(event.transportPrice) * dto.ticketQuantity : 0) +
-      (dto.hasParking ? Number(event.parkingPrice) : 0);
+    // Transport + Parking
+    totalAmount += dto.transportQuantity * Number(event.transportPrice);
+    totalAmount += dto.parkingQuantity * Number(event.parkingPrice);
 
     const reference = `SGB-${uuidv4().substring(0, 8).toUpperCase()}`;
-
-    const order: Order = this.ordersRepository.create({
-      ...dto,
+    const order = this.ordersRepository.create({
       reference,
+      userId,
+      customerName: dto.customerName,
+      customerPhone: dto.customerPhone,
+      customerEmail: dto.customerEmail ?? null,
+      transportQuantity: dto.transportQuantity,
+      parkingQuantity: dto.parkingQuantity,
       totalAmount,
       status: OrderStatus.PENDING,
-      userId: userId || null,
+      paymentProvider: dto.paymentProvider,
+      eventId: event.id,
       qrCodeData: 'PENDING',
     });
+    const savedOrder = await this.ordersRepository.save(order);
 
-    const savedOrder: Order = await this.ordersRepository.save(order);
+    // Sauvegarder les items
+    for (const item of items) {
+      item.orderId = savedOrder.id;
+      await this.itemsRepository.save(item);
+    }
+
+    // QR code de commande
     savedOrder.qrCodeData = this.qrService.generateTicketQr(savedOrder.id);
     return this.ordersRepository.save(savedOrder);
+  }
+
+  async findAll(): Promise<Order[]> {
+    return this.ordersRepository.find({
+      relations: ['items', 'items.ticketCategory', 'tickets', 'event', 'user'],
+      order: { createdAt: 'DESC' },
+    });
   }
 
   async findOne(id: string): Promise<Order> {
     return this.ordersRepository.findOneOrFail({
       where: [{ id }, { reference: id }],
-      relations: ['tickets'],
+      relations: ['items', 'items.ticketCategory', 'tickets', 'event', 'user'],
     });
   }
 
-  async findAll(): Promise<Order[]> {
+  async findByUser(userId: string): Promise<Order[]> {
     return this.ordersRepository.find({
+      where: { userId },
+      relations: ['items', 'items.ticketCategory', 'tickets', 'event'],
       order: { createdAt: 'DESC' },
-      relations: ['tickets'],
     });
   }
 
-  async markAsPaid(
-    id: string,
-    paymentProvider: PaymentProvider,
-    transactionId: string,
-  ): Promise<Order> {
+  async markAsPaid(id: string): Promise<Order> {
     return this.dataSource.transaction(async (manager) => {
       const order = await manager.findOne(Order, {
         where: { id },
-        relations: ['tickets', 'event'],
+        relations: ['items', 'items.ticketCategory', 'event'],
       });
       if (!order) throw new BadRequestException('Commande introuvable');
       if (order.status === OrderStatus.PAID) {
         throw new BadRequestException('Commande déjà payée');
       }
 
-      this.logger.log(`markAsPaid: order.id=${order.id}, param id=${id}`);
+      // Marquer payée
+      await manager.update(Order, id, {
+        status: OrderStatus.PAID,
+        paidAt: new Date(),
+      });
 
-      order.status = OrderStatus.PAID;
-      order.paidAt = new Date();
-      order.paymentProvider = paymentProvider;
-      order.paymentTransactionId = transactionId;
-
-      const ticketTypes: TicketType[] = [];
-      for (let i = 0; i < order.ticketQuantity; i++) {
-        ticketTypes.push(TicketType.TICKET);
-      }
-      if (order.hasTransport) {
-        for (let i = 0; i < order.ticketQuantity; i++) {
-          ticketTypes.push(TicketType.TRANSPORT);
-        }
-      }
-      if (order.hasParking) {
-        ticketTypes.push(TicketType.PARKING);
-      }
-
-      const tickets: Ticket[] = [];
-
-      for (const type of ticketTypes) {
-        const ticketId = uuidv4();
-        const qrCode = this.qrService.generateTicketQr(ticketId);
-
-        await manager.query(
-          `INSERT INTO tickets (id, "qrCode", "orderId", "ownerId", type, status, "passengerName", "passengerPhone", "scanCount", "createdAt", "updatedAt")
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())`,
-          [
-            ticketId,
-            qrCode,
-            id,
-            order.userId || null,
-            type,
-            TicketStatus.VALID,
-            type !== TicketType.PARKING ? order.customerName : null,
-            type !== TicketType.PARKING ? order.customerPhone : null,
-            0,
-          ],
+      // Déduire les places des catégories
+      for (const item of order.items) {
+        await manager.decrement(
+          'EventTicketCategory',
+          { id: item.ticketCategoryId },
+          'availableSeats',
+          item.quantity,
         );
-
-        const createdTicket = await manager.findOne(Ticket, {
-          where: { id: ticketId },
-        });
-
-        if (!createdTicket) {
-          throw new BadRequestException('Échec création ticket');
-        }
-        tickets.push(createdTicket);
       }
 
-      await manager.save(order);
-      return { ...order, tickets } as Order;
+      // Générer les tickets
+      // 1. Un ticket TICKET par place dans chaque catégorie
+      for (const item of order.items) {
+        for (let i = 0; i < item.quantity; i++) {
+          await this.createTicket(
+            manager,
+            order,
+            TicketType.TICKET,
+            item.ticketCategoryId,
+          );
+        }
+      }
+      // 2. Un ticket TRANSPORT par place transport
+      for (let i = 0; i < order.transportQuantity; i++) {
+        await this.createTicket(manager, order, TicketType.TRANSPORT, null);
+      }
+      // 3. Un ticket PARKING par place parking
+      for (let i = 0; i < order.parkingQuantity; i++) {
+        await this.createTicket(manager, order, TicketType.PARKING, null);
+      }
+
+      return manager.findOneOrFail(Order, {
+        where: { id },
+        relations: ['items', 'items.ticketCategory', 'tickets', 'event'],
+      });
     });
   }
 
-  async verifyQrCode(token: string): Promise<{ valid: boolean; order?: Order }> {
-    const payload = this.qrService.verifyTicketQr(token);
-    if (!payload) return { valid: false };
-
-    const order = await this.findOne(payload.ticketId);
-    if (!order || order.status !== OrderStatus.PAID) return { valid: false };
-
-    return { valid: true, order };
+  private async createTicket(
+    manager: any,
+    order: Order,
+    type: TicketType,
+    ticketCategoryId: string | null,
+  ): Promise<void> {
+    const ticketId = uuidv4();
+    const qrCode = this.qrService.generateTicketQr(ticketId);
+    await manager.query(
+      `INSERT INTO tickets (id, "qrCode", "orderId", "ownerId", "ticketCategoryId", type, status, "passengerName", "passengerPhone", "scanCount", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6::tickets_type_enum, $7::tickets_status_enum, $8, $9, 0, NOW(), NOW())`,
+      [
+        ticketId,
+        qrCode,
+        order.id,
+        order.userId,
+        ticketCategoryId,
+        type,
+        TicketStatus.VALID,
+        type === TicketType.TICKET ? order.customerName : null,
+        type === TicketType.TICKET ? order.customerPhone : null,
+      ],
+    );
   }
 }

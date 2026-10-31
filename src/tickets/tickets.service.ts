@@ -8,72 +8,76 @@ import { QrService } from './qr.service';
 export class TicketsService {
   constructor(
     @InjectRepository(Ticket)
-    private readonly ticketRepo: Repository<Ticket>,
+    private readonly ticketsRepository: Repository<Ticket>,
     private readonly qrService: QrService,
   ) {}
 
-  async findByUserId(userId: string): Promise<Ticket[]> {
-    return this.ticketRepo.find({
+  async findByUser(userId: string): Promise<Ticket[]> {
+    return this.ticketsRepository.find({
       where: { ownerId: userId },
+      relations: ['order', 'order.event', 'ticketCategory'],
       order: { createdAt: 'DESC' },
-      relations: ['order'],
     });
   }
 
   async findOne(id: string): Promise<Ticket> {
-    const ticket = await this.ticketRepo.findOne({
+    const ticket = await this.ticketsRepository.findOne({
       where: { id },
-      relations: ['order', 'owner'],
+      relations: ['order', 'order.event', 'ticketCategory'],
     });
     if (!ticket) throw new NotFoundException('Ticket introuvable');
     return ticket;
   }
 
-  async verifyQr(token: string): Promise<{ valid: boolean; ticket?: Ticket; reason?: string }> {
-    const payload = this.qrService.verifyTicketQr(token);
-    if (!payload) return { valid: false, reason: 'QR invalide' };
+  async verify(qrData: string): Promise<{
+    valid: boolean;
+    message: string;
+    ticket?: Ticket;
+  }> {
+    const payload = this.qrService.verifyTicketQr(qrData);
+    if (!payload) {
+      return { valid: false, message: 'QR code falsifié ou invalide' };
+    }
 
-    const ticket = await this.ticketRepo.findOne({
+    const ticket = await this.ticketsRepository.findOne({
       where: { id: payload.ticketId },
-      relations: ['order'],
+      relations: ['order', 'order.event', 'ticketCategory'],
     });
-    if (!ticket) return { valid: false, reason: 'Ticket introuvable' };
+    if (!ticket) return { valid: false, message: 'Ticket introuvable' };
+
+    if (ticket.order.status !== 'PAID') {
+      return { valid: false, message: 'Commande non payée', ticket };
+    }
 
     if (ticket.status === TicketStatus.USED) {
-      return { valid: false, ticket, reason: 'Billet déjà utilisé' };
+      return { valid: false, message: 'Ticket déjà utilisé', ticket };
     }
 
     if (ticket.status === TicketStatus.CANCELLED) {
-      return { valid: false, ticket, reason: 'Billet annulé' };
+      return { valid: false, message: 'Ticket annulé', ticket };
     }
 
-    if (ticket.order.status !== 'PAID') {
-      return { valid: false, ticket, reason: 'Commande non payée' };
-    }
+    await this.ticketsRepository.update(ticket.id, {
+      status: TicketStatus.USED,
+      usedAt: new Date(),
+      scanCount: (ticket.scanCount || 0) + 1,
+    });
 
-    return { valid: true, ticket };
+    const updated = await this.findOne(ticket.id);
+    const cat = updated.ticketCategory?.name ?? '';
+    return {
+      valid: true,
+      message: `Bienvenue ! ${updated.type}${cat ? ' - ' + cat : ''}`,
+      ticket: updated,
+    };
   }
 
-  async markAsUsed(ticketId: string, agentId: string): Promise<Ticket> {
-    const ticket = await this.findOne(ticketId);
-    if (ticket.status === TicketStatus.USED) {
-      throw new BadRequestException('Billet déjà utilisé');
-    }
-    ticket.status = TicketStatus.USED;
-    ticket.usedAt = new Date();
-    ticket.usedBy = agentId;
-    ticket.scanCount = (ticket.scanCount || 0) + 1;
-    return this.ticketRepo.save(ticket);
-  }
-
-  async shareByPhone(ticketId: string, userId: string, phone: string): Promise<Ticket> {
-    const ticket = await this.findOne(ticketId);
+  async share(id: string, userId: string): Promise<Ticket> {
+    const ticket = await this.findOne(id);
     if (ticket.ownerId !== userId) {
       throw new BadRequestException('Vous ne possédez pas ce ticket');
     }
-    ticket.passengerPhone = phone;
-    ticket.sharedVia = 'SMS';
-    ticket.sharedAt = new Date();
-    return this.ticketRepo.save(ticket);
+    await this.ticketsRepository.update(id, { sharedAt: new Date() });
+    return this.findOne(id);
   }
 }

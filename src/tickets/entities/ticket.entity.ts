@@ -2,25 +2,25 @@ import {
   Entity,
   PrimaryGeneratedColumn,
   Column,
-  ManyToOne,
-  JoinColumn,
   CreateDateColumn,
   UpdateDateColumn,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
 import { Order } from '../../orders/entities/order.entity';
 import { User } from '../../users/entities/user.entity';
-
-export enum TicketStatus {
-  VALID = 'VALID',
-  USED = 'USED',
-  CANCELLED = 'CANCELLED',
-  TRANSFERRED = 'TRANSFERRED',
-}
+import { EventTicketCategory } from '../../events/entities/event-ticket-category.entity';
 
 export enum TicketType {
   TICKET = 'TICKET',
   TRANSPORT = 'TRANSPORT',
   PARKING = 'PARKING',
+}
+
+export enum TicketStatus {
+  VALID = 'VALID',
+  USED = 'USED',
+  CANCELLED = 'CANCELLED',
 }
 
 @Entity('tickets')
@@ -31,25 +31,26 @@ export class Ticket {
   @Column({ type: 'varchar', unique: true })
   qrCode: string;
 
-  // ✅ Relation avec FK gérée manuellement
-  @ManyToOne(() => Order, (order) => order.tickets, {
-    onDelete: 'CASCADE',
-    nullable: false,
-    createForeignKeyConstraints: false,  // ← SOLUTION
-  })
-  @JoinColumn({ name: 'orderId' })
-  order: Order;
-
-  // ✅ Colonne explicite (écrite directement en SQL)
   @Column({ type: 'uuid' })
   orderId: string;
+
+  @ManyToOne(() => Order, (o) => o.tickets, { eager: true })
+  @JoinColumn({ name: 'orderId' })
+  order: Order;
 
   @Column({ type: 'uuid', nullable: true })
   ownerId: string | null;
 
-  @ManyToOne(() => User, { nullable: true, eager: true })
+  @ManyToOne(() => User, { eager: true, nullable: true })
   @JoinColumn({ name: 'ownerId' })
   owner: User | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  ticketCategoryId: string | null;
+
+  @ManyToOne(() => EventTicketCategory, { eager: true, nullable: true })
+  @JoinColumn({ name: 'ticketCategoryId' })
+  ticketCategory: EventTicketCategory | null;
 
   @Column({ type: 'enum', enum: TicketType })
   type: TicketType;
@@ -69,7 +70,7 @@ export class Ticket {
   @Column({ type: 'timestamp', nullable: true })
   usedAt: Date | null;
 
-  @Column({ type: 'varchar', nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   usedBy: string | null;
 
   @Column({ type: 'int', default: 0 })

@@ -3,12 +3,14 @@ import {
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
+  UpdateDateColumn,
   ManyToOne,
-  JoinColumn,
   OneToMany,
+  JoinColumn,
 } from 'typeorm';
-import { Event } from '../../events/entities/event.entity';
 import { User } from '../../users/entities/user.entity';
+import { Event } from '../../events/entities/event.entity';
+import { OrderItem } from './order-item.entity';
 import { Ticket } from '../../tickets/entities/ticket.entity';
 
 export enum OrderStatus {
@@ -36,12 +38,12 @@ export class Order {
   @Column({ type: 'varchar', unique: true })
   reference: string;
 
-  @ManyToOne(() => User, (user) => user.orders, { nullable: true })
-  @JoinColumn({ name: 'userId' })
-  user: User | null;
+  @Column({ type: 'uuid' })
+  userId: string;
 
-  @Column({ type: 'uuid', nullable: true })
-  userId: string | null;
+  @ManyToOne(() => User, { eager: true })
+  @JoinColumn({ name: 'userId' })
+  user: User;
 
   @Column({ type: 'varchar' })
   customerName: string;
@@ -52,14 +54,11 @@ export class Order {
   @Column({ type: 'varchar', nullable: true })
   customerEmail: string | null;
 
-  @Column({ type: 'int' })
-  ticketQuantity: number;
+  @Column({ type: 'int', default: 0 })
+  transportQuantity: number;
 
-  @Column({ type: 'boolean', default: false })
-  hasTransport: boolean;
-
-  @Column({ type: 'boolean', default: false })
-  hasParking: boolean;
+  @Column({ type: 'int', default: 0 })
+  parkingQuantity: number;
 
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   totalAmount: number;
@@ -73,22 +72,28 @@ export class Order {
   @Column({ type: 'varchar', nullable: true })
   paymentTransactionId: string | null;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   qrCodeData: string | null;
 
   @Column({ type: 'timestamp', nullable: true })
   paidAt: Date | null;
 
+  @Column({ type: 'uuid' })
+  eventId: string;
+
   @ManyToOne(() => Event, { eager: true })
   @JoinColumn({ name: 'eventId' })
   event: Event;
 
-  @Column({ type: 'uuid' })
-  eventId: string;
+  @OneToMany(() => OrderItem, (item) => item.order, { cascade: true })
+  items: OrderItem[];
 
-  @OneToMany(() => Ticket, (ticket) => ticket.order, { cascade: true })
+  @OneToMany(() => Ticket, (t) => t.order)
   tickets: Ticket[];
 
   @CreateDateColumn()
   createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 }

@@ -10,9 +10,11 @@ import { Order } from '../../orders/entities/order.entity';
 
 export enum UserRole {
   CUSTOMER = 'CUSTOMER',
-  DRIVER = 'DRIVER',
   AGENT = 'AGENT',
+  COORDINATOR = 'COORDINATOR',
   ADMIN = 'ADMIN',
+  SUPER_ADMIN = 'SUPER_ADMIN',
+  DRIVER = 'DRIVER',
 }
 
 @Entity('users')
@@ -31,6 +33,9 @@ export class User {
 
   @Column({ type: 'enum', enum: UserRole, default: UserRole.CUSTOMER })
   role: UserRole;
+
+  @Column({ type: 'varchar', nullable: true, unique: true })
+  matricule: string | null;
 
   @Column({ type: 'boolean', default: false })
   isVerified: boolean;

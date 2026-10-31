@@ -11,6 +11,7 @@ export class OtpService {
   }
 
   generateOtp(): string {
+    if (this.isDev) return '123456';
     return Math.floor(100000 + Math.random() * 900000).toString();
   }
 
@@ -19,8 +20,6 @@ export class OtpService {
       this.logger.log(`📱 [DEV] OTP pour ${phone} : ${otp}`);
       return;
     }
-
-    // TODO: Intégrer Orange SMS API ou Twilio
     this.logger.log(`📱 OTP envoyé à ${phone}`);
   }
 }

@@ -1,16 +1,53 @@
-import { IsString, IsEnum, IsDateString, IsNumber, IsOptional, Min } from 'class-validator';
-import { EventCategory, EventStatus } from '../entities/event.entity';
+import {
+  IsString,
+  IsOptional,
+  IsDateString,
+  IsNumber,
+  IsArray,
+  ValidateNested,
+  Min,
+  MaxLength,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class CreateTicketCategoryDto {
+  @IsString()
+  @MaxLength(50)
+  name: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  description?: string;
+
+  @IsNumber()
+  @Min(0)
+  price: number;
+
+  @IsNumber()
+  @Min(0)
+  totalSeats: number;
+
+  @IsString()
+  @IsOptional()
+  color?: string;
+
+  @IsNumber()
+  @IsOptional()
+  sortOrder?: number;
+}
 
 export class CreateEventDto {
   @IsString()
+  @MaxLength(150)
   title: string;
 
   @IsString()
   @IsOptional()
   description?: string;
 
-  @IsEnum(EventCategory)
-  category: EventCategory;
+  @IsString()
+  category: string;
 
   @IsDateString()
   date: string;
@@ -22,25 +59,9 @@ export class CreateEventDto {
   @IsOptional()
   venueAddress?: string;
 
-  @IsNumber()
-  @IsOptional()
-  latitude?: number;
-
-  @IsNumber()
-  @IsOptional()
-  longitude?: number;
-
   @IsString()
   @IsOptional()
   imageUrl?: string;
-
-  @IsNumber()
-  @Min(0)
-  startingPrice: number;
-
-  @IsNumber()
-  @Min(1)
-  totalSeats: number;
 
   @IsNumber()
   @Min(0)
@@ -50,7 +71,12 @@ export class CreateEventDto {
   @Min(0)
   parkingPrice: number;
 
-  @IsEnum(EventStatus)
+  @IsString()
   @IsOptional()
-  status?: EventStatus;
+  status?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateTicketCategoryDto)
+  ticketCategories: CreateTicketCategoryDto[];
 }

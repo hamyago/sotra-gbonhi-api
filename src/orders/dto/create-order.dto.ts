@@ -1,5 +1,25 @@
-import { IsString, IsInt, IsBoolean, IsOptional, IsEnum, Min, Max, IsPhoneNumber } from 'class-validator';
+import {
+  IsString,
+  IsInt,
+  IsOptional,
+  IsEnum,
+  IsArray,
+  ValidateNested,
+  Min,
+  Max,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 import { PaymentProvider } from '../entities/order.entity';
+
+export class OrderItemDto {
+  @IsString()
+  ticketCategoryId: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  quantity: number;
+}
 
 export class CreateOrderDto {
   @IsString()
@@ -15,16 +35,20 @@ export class CreateOrderDto {
   @IsOptional()
   customerEmail?: string;
 
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => OrderItemDto)
+  items: OrderItemDto[];
+
   @IsInt()
-  @Min(1)
+  @Min(0)
   @Max(10)
-  ticketQuantity: number;
+  transportQuantity: number;
 
-  @IsBoolean()
-  hasTransport: boolean;
-
-  @IsBoolean()
-  hasParking: boolean;
+  @IsInt()
+  @Min(0)
+  @Max(10)
+  parkingQuantity: number;
 
   @IsEnum(PaymentProvider)
   paymentProvider: PaymentProvider;

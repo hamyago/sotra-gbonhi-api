@@ -1,7 +1,8 @@
-import { Controller, Get, Post, Param, Query, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Param, Query, UseGuards, Req } from '@nestjs/common';
 import { TicketsService } from './tickets.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 
 @Controller('tickets')
 export class TicketsController {
@@ -9,13 +10,16 @@ export class TicketsController {
 
   @Get()
   @UseGuards(JwtAuthGuard)
-  async findMyTickets(@CurrentUser('id') userId: string) {
-    return this.ticketsService.findByUserId(userId);
+  async findMyTickets(@Req() req: any) {
+    return this.ticketsService.findByUser(req.user.id);
   }
 
+  // 🔒 Seuls les AGENT peuvent scanner
   @Get('verify')
-  async verify(@Query('token') token: string) {
-    return this.ticketsService.verifyQr(token);
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('AGENT')
+  async verify(@Query('qr') qr: string) {
+    return this.ticketsService.verify(qr);
   }
 
   @Get(':id')
@@ -26,11 +30,7 @@ export class TicketsController {
 
   @Post(':id/share')
   @UseGuards(JwtAuthGuard)
-  async share(
-    @Param('id') id: string,
-    @CurrentUser('id') userId: string,
-    @Body('phone') phone: string,
-  ) {
-    return this.ticketsService.shareByPhone(id, userId, phone);
+  async share(@Param('id') id: string, @Req() req: any) {
+    return this.ticketsService.share(id, req.user.id);
   }
 }
