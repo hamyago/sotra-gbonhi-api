@@ -1,4 +1,13 @@
-import { IsOptional, IsUUID, IsEnum, IsDateString } from 'class-validator';
+import {
+  IsOptional,
+  IsUUID,
+  IsEnum,
+  IsDateString,
+  IsInt,
+  Min,
+  Max,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 import { OrderStatus } from '../../orders/entities/order.entity';
 
 export class OrderFiltersDto {
@@ -17,4 +26,11 @@ export class OrderFiltersDto {
   @IsDateString()
   @IsOptional()
   to?: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(500)
+  @IsOptional()
+  @Type(() => Number)
+  limit?: number;
 }

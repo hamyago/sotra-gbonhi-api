@@ -8,6 +8,8 @@ import {
   Delete,
   Query,
   UseGuards,
+  Req,
+  ForbiddenException,
 } from '@nestjs/common';
 import { AdminUsersService } from './admin-users.service';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -45,7 +47,16 @@ export class AdminUsersController {
 
   @Patch(':id/role')
   @Roles('ADMIN', 'SUPER_ADMIN')
-  updateRole(@Param('id') id: string, @Body() dto: UpdateUserRoleDto) {
+  updateRole(
+    @Param('id') id: string,
+    @Body() dto: UpdateUserRoleDto,
+    @Req() req: any,
+  ) {
+    if (dto.role === UserRole.SUPER_ADMIN && req.user.role !== UserRole.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Seul un SUPER_ADMIN peut promouvoir en SUPER_ADMIN',
+      );
+    }
     return this.adminUsersService.updateRole(id, dto);
   }
 

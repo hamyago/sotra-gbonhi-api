@@ -4,7 +4,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like } from 'typeorm';
+import { Repository } from 'typeorm';
 import { User, UserRole } from '../users/entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
@@ -17,13 +17,20 @@ export class AdminUsersService {
   ) {}
 
   async findAll(search?: string, role?: UserRole): Promise<User[]> {
-    const where: any = {};
-    if (search) where.phone = Like(`%${search}%`);
-    if (role) where.role = role;
-    return this.usersRepository.find({
-      where,
-      order: { createdAt: 'DESC' },
-    });
+    const qb = this.usersRepository
+      .createQueryBuilder('u')
+      .orderBy('u.createdAt', 'DESC');
+
+    if (search) {
+      qb.andWhere(
+        '(u.phone LIKE :search OR u.name LIKE :search OR u.email LIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+    if (role) {
+      qb.andWhere('u.role = :role', { role });
+    }
+    return qb.getMany();
   }
 
   async findOne(id: string): Promise<User> {
@@ -33,11 +40,13 @@ export class AdminUsersService {
   }
 
   async create(dto: CreateUserDto): Promise<User> {
-    const existing = await this.usersRepository.findOne({ where: { phone: dto.phone } });
+    const existing = await this.usersRepository.findOne({
+      where: { phone: dto.phone },
+    });
     if (existing) {
-      existing.role = dto.role;
-      if (dto.name) existing.name = dto.name;
-      return this.usersRepository.save(existing);
+      throw new BadRequestException(
+        'Ce numéro est déjà utilisé. Utilisez la modification de rôle.',
+      );
     }
 
     const user = this.usersRepository.create({
