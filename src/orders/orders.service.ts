@@ -1,12 +1,16 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { Order, OrderStatus, PaymentProvider } from './entities/order.entity';
+import { Order, OrderStatus } from './entities/order.entity';
 import { OrderItem } from './entities/order-item.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { EventsService } from '../events/events.service';
 import { QrService } from '../tickets/qr.service';
-import { Ticket, TicketType, TicketStatus } from '../tickets/entities/ticket.entity';
+import {
+  Ticket,
+  TicketType,
+  TicketStatus,
+} from '../tickets/entities/ticket.entity';
 import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
@@ -25,9 +29,14 @@ export class OrdersService {
     const event = await this.eventsService.findOne(dto.eventId);
     if (!event) throw new BadRequestException('Événement introuvable');
 
-    // Vérifier les catégories et calculer le total
+    // Validation + calcul total AVANT la transaction
     let totalAmount = 0;
-    const items: OrderItem[] = [];
+    const pendingItems: {
+      ticketCategoryId: string;
+      quantity: number;
+      unitPrice: number;
+      subtotal: number;
+    }[] = [];
 
     for (const itemDto of dto.items) {
       const category = event.ticketCategories.find(
@@ -39,64 +48,63 @@ export class OrdersService {
         );
       }
       if (!category.isActive) {
-        throw new BadRequestException(
-          `Catégorie ${category.name} désactivée`,
-        );
+        throw new BadRequestException(`Catégorie ${category.name} désactivée`);
       }
       if (category.availableSeats < itemDto.quantity) {
         throw new BadRequestException(
           `Pas assez de places disponibles pour ${category.name}`,
         );
       }
-
       const subtotal = Number(category.price) * itemDto.quantity;
       totalAmount += subtotal;
-
-      const item = this.itemsRepository.create({
+      pendingItems.push({
         ticketCategoryId: category.id,
         quantity: itemDto.quantity,
         unitPrice: Number(category.price),
         subtotal,
       });
-      items.push(item);
     }
 
-    // Transport + Parking
     totalAmount += dto.transportQuantity * Number(event.transportPrice);
     totalAmount += dto.parkingQuantity * Number(event.parkingPrice);
 
     const reference = `SGB-${uuidv4().substring(0, 8).toUpperCase()}`;
-    const order = this.ordersRepository.create({
-      reference,
-      userId,
-      customerName: dto.customerName,
-      customerPhone: dto.customerPhone,
-      customerEmail: dto.customerEmail ?? null,
-      transportQuantity: dto.transportQuantity,
-      parkingQuantity: dto.parkingQuantity,
-      totalAmount,
-      status: OrderStatus.PENDING,
-      paymentProvider: dto.paymentProvider,
-      eventId: event.id,
-      qrCodeData: 'PENDING',
+
+    return this.dataSource.transaction(async (manager) => {
+      const order = manager.create(Order, {
+        reference,
+        userId,
+        customerName: dto.customerName,
+        customerPhone: dto.customerPhone,
+        customerEmail: dto.customerEmail ?? null,
+        transportQuantity: dto.transportQuantity,
+        parkingQuantity: dto.parkingQuantity,
+        totalAmount,
+        status: OrderStatus.PENDING,
+        paymentProvider: dto.paymentProvider,
+        eventId: event.id,
+        qrCodeData: 'PENDING',
+      });
+      const savedOrder = await manager.save(order);
+
+      const items = pendingItems.map((p) =>
+        manager.create(OrderItem, {
+          orderId: savedOrder.id,
+          ...p,
+        }),
+      );
+      await manager.save(items);
+
+      savedOrder.qrCodeData = this.qrService.generateTicketQr(savedOrder.id);
+      return manager.save(savedOrder);
     });
-    const savedOrder = await this.ordersRepository.save(order);
-
-    // Sauvegarder les items
-    for (const item of items) {
-      item.orderId = savedOrder.id;
-      await this.itemsRepository.save(item);
-    }
-
-    // QR code de commande
-    savedOrder.qrCodeData = this.qrService.generateTicketQr(savedOrder.id);
-    return this.ordersRepository.save(savedOrder);
   }
 
   async findAll(): Promise<Order[]> {
     return this.ordersRepository.find({
       relations: ['items', 'items.ticketCategory', 'tickets', 'event', 'user'],
       order: { createdAt: 'DESC' },
+      take: 500,
     });
   }
 
@@ -119,6 +127,7 @@ export class OrdersService {
     return this.dataSource.transaction(async (manager) => {
       const order = await manager.findOne(Order, {
         where: { id },
+        lock: { mode: 'pessimistic_write' },
         relations: ['items', 'items.ticketCategory', 'event'],
       });
       if (!order) throw new BadRequestException('Commande introuvable');
@@ -126,13 +135,11 @@ export class OrdersService {
         throw new BadRequestException('Commande déjà payée');
       }
 
-      // Marquer payée
       await manager.update(Order, id, {
         status: OrderStatus.PAID,
         paidAt: new Date(),
       });
 
-      // Déduire les places des catégories
       for (const item of order.items) {
         await manager.decrement(
           'EventTicketCategory',
@@ -142,8 +149,6 @@ export class OrdersService {
         );
       }
 
-      // Générer les tickets
-      // 1. Un ticket TICKET par place dans chaque catégorie
       for (const item of order.items) {
         for (let i = 0; i < item.quantity; i++) {
           await this.createTicket(
@@ -154,11 +159,9 @@ export class OrdersService {
           );
         }
       }
-      // 2. Un ticket TRANSPORT par place transport
       for (let i = 0; i < order.transportQuantity; i++) {
         await this.createTicket(manager, order, TicketType.TRANSPORT, null);
       }
-      // 3. Un ticket PARKING par place parking
       for (let i = 0; i < order.parkingQuantity; i++) {
         await this.createTicket(manager, order, TicketType.PARKING, null);
       }
