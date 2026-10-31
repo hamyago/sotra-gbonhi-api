@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
   OneToMany,
 } from 'typeorm';
+import { Exclude } from 'class-transformer';
 import { Order } from '../../orders/entities/order.entity';
 
 export enum UserRole {
@@ -43,9 +44,11 @@ export class User {
   @Column({ type: 'varchar', nullable: true })
   avatarUrl: string | null;
 
+  @Exclude()
   @Column({ type: 'varchar', nullable: true })
   otpHash: string | null;
 
+  @Exclude()
   @Column({ type: 'timestamp', nullable: true })
   otpExpiresAt: Date | null;
 

@@ -16,7 +16,9 @@ export class PickupPointsService {
   ) {}
 
   async create(dto: CreatePickupPointDto): Promise<PickupPoint> {
-    const mission = await this.missionsRepository.findOne({ where: { id: dto.missionId } });
+    const mission = await this.missionsRepository.findOne({
+      where: { id: dto.missionId },
+    });
     if (!mission) throw new NotFoundException('Mission introuvable');
 
     const point = this.pickupPointsRepository.create({
@@ -49,17 +51,19 @@ export class PickupPointsService {
       where: { id },
       relations: ['mission'],
     });
-    if (!point) throw new NotFoundException('Point de rassemblement introuvable');
+    if (!point)
+      throw new NotFoundException('Point de rassemblement introuvable');
     return point;
   }
 
   async update(id: string, dto: UpdatePickupPointDto): Promise<PickupPoint> {
     const point = await this.findOne(id);
-    if (dto.name) point.name = dto.name;
+    if (dto.name !== undefined) point.name = dto.name;
     if (dto.latitude !== undefined) point.latitude = dto.latitude;
     if (dto.longitude !== undefined) point.longitude = dto.longitude;
     if (dto.order !== undefined) point.order = dto.order;
-    if (dto.expectedPassengers !== undefined) point.expectedPassengers = dto.expectedPassengers;
+    if (dto.expectedPassengers !== undefined)
+      point.expectedPassengers = dto.expectedPassengers;
     return this.pickupPointsRepository.save(point);
   }
 
