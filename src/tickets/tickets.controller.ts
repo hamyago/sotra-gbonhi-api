@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Param, Query, UseGuards, Req } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Param,
+  Query,
+  UseGuards,
+  Req,
+  ForbiddenException,
+} from '@nestjs/common';
 import { TicketsService } from './tickets.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -14,7 +23,6 @@ export class TicketsController {
     return this.ticketsService.findByUser(req.user.id);
   }
 
-  // 🔒 Seuls les AGENT peuvent scanner
   @Get('verify')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('AGENT')
@@ -24,8 +32,19 @@ export class TicketsController {
 
   @Get(':id')
   @UseGuards(JwtAuthGuard)
-  async findOne(@Param('id') id: string) {
-    return this.ticketsService.findOne(id);
+  async findOne(@Param('id') id: string, @Req() req: any) {
+    const ticket = await this.ticketsService.findOne(id);
+    const role = req.user.role;
+    const isOwner = ticket.ownerId === req.user.id;
+    const isStaff =
+      role === 'ADMIN' ||
+      role === 'AGENT' ||
+      role === 'COORDINATOR' ||
+      role === 'SUPER_ADMIN';
+    if (!isOwner && !isStaff) {
+      throw new ForbiddenException('Accès refusé');
+    }
+    return ticket;
   }
 
   @Post(':id/share')
