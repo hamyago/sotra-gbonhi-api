@@ -6,11 +6,12 @@ import { Ticket } from '../tickets/entities/ticket.entity';
 import { AdminUsersService } from './admin-users.service';
 import { AdminUsersController } from './admin-users.controller';
 import { AdminOrdersService } from './admin-orders.service';
+import { AdminOrdersExportService } from './admin-orders.export';
 import { AdminOrdersController } from './admin-orders.controller';
 
 @Module({
   imports: [TypeOrmModule.forFeature([User, Order, Ticket])],
   controllers: [AdminUsersController, AdminOrdersController],
-  providers: [AdminUsersService, AdminOrdersService],
+  providers: [AdminUsersService, AdminOrdersService, AdminOrdersExportService],
 })
 export class AdminModule {}

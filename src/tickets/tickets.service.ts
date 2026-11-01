@@ -41,12 +41,20 @@ export class TicketsService {
     }
 
     return this.dataSource.transaction(async (manager) => {
-      const ticket = await manager.findOne(Ticket, {
+      // 1. Lock sur la table tickets uniquement
+      const locked = await manager
+        .getRepository(Ticket)
+        .createQueryBuilder('t')
+        .setLock('pessimistic_write')
+        .where('t.id = :id', { id: payload.ticketId })
+        .getOne();
+      if (!locked) return { valid: false, message: 'Ticket introuvable' };
+
+      // 2. Recharger avec relations
+      const ticket = await manager.findOneOrFail(Ticket, {
         where: { id: payload.ticketId },
         relations: ['order', 'order.event', 'ticketCategory'],
-        lock: { mode: 'pessimistic_write' },
       });
-      if (!ticket) return { valid: false, message: 'Ticket introuvable' };
 
       if (ticket.order.status !== 'PAID') {
         return { valid: false, message: 'Commande non payée', ticket };

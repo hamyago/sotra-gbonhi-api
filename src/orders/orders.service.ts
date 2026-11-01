@@ -125,15 +125,23 @@ export class OrdersService {
 
   async markAsPaid(id: string): Promise<Order> {
     return this.dataSource.transaction(async (manager) => {
-      const order = await manager.findOne(Order, {
-        where: { id },
-        lock: { mode: 'pessimistic_write' },
-        relations: ['items', 'items.ticketCategory', 'event'],
-      });
-      if (!order) throw new BadRequestException('Commande introuvable');
-      if (order.status === OrderStatus.PAID) {
+      // 1. Lock sur la table orders uniquement (sans relations)
+      const locked = await manager
+        .getRepository(Order)
+        .createQueryBuilder('order')
+        .setLock('pessimistic_write')
+        .where('order.id = :id', { id })
+        .getOne();
+      if (!locked) throw new BadRequestException('Commande introuvable');
+      if (locked.status === OrderStatus.PAID) {
         throw new BadRequestException('Commande déjà payée');
       }
+
+      // 2. Recharger avec relations
+      const order = await manager.findOneOrFail(Order, {
+        where: { id },
+        relations: ['items', 'items.ticketCategory', 'event'],
+      });
 
       await manager.update(Order, id, {
         status: OrderStatus.PAID,
