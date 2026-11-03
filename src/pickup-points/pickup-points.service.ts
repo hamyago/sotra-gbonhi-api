@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { PickupPoint } from './entities/pickup-point.entity';
 import { CreatePickupPointDto } from './dto/create-pickup-point.dto';
 import { UpdatePickupPointDto } from './dto/update-pickup-point.dto';
-import { Mission } from '../missions/entities/mission.entity';
+import { Mission, MissionStatus } from '../missions/entities/mission.entity';
 
 @Injectable()
 export class PickupPointsService {
@@ -44,6 +44,20 @@ export class PickupPointsService {
       where: { missionId },
       order: { order: 'ASC' },
     });
+  }
+
+  /// 🆕 Public : points de rassemblement d'un événement (via ses missions)
+  async findByEvent(eventId: string): Promise<PickupPoint[]> {
+    return this.pickupPointsRepository
+      .createQueryBuilder('p')
+      .leftJoin('p.mission', 'm')
+      .where('m.eventId = :eventId', { eventId })
+      .andWhere('m.status != :cancelled', {
+        cancelled: MissionStatus.CANCELLED,
+      })
+      .orderBy('m.departureTime', 'ASC')
+      .addOrderBy('p.order', 'ASC')
+      .getMany();
   }
 
   async findOne(id: string): Promise<PickupPoint> {

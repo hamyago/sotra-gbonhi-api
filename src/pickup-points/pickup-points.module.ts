@@ -4,6 +4,7 @@ import { PickupPoint } from './entities/pickup-point.entity';
 import { Mission } from '../missions/entities/mission.entity';
 import { PickupPointsService } from './pickup-points.service';
 import { PickupPointsController } from './pickup-points.controller';
+import { PublicPickupPointsController } from './public-pickup-points.controller';
 import { MissionsModule } from '../missions/missions.module';
 
 @Module({
@@ -11,7 +12,7 @@ import { MissionsModule } from '../missions/missions.module';
     TypeOrmModule.forFeature([PickupPoint, Mission]),
     forwardRef(() => MissionsModule),
   ],
-  controllers: [PickupPointsController],
+  controllers: [PickupPointsController, PublicPickupPointsController],
   providers: [PickupPointsService],
   exports: [PickupPointsService, TypeOrmModule],
 })

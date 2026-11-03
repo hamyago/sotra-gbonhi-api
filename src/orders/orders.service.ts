@@ -84,6 +84,7 @@ export class OrdersService {
         paymentProvider: dto.paymentProvider,
         eventId: event.id,
         qrCodeData: 'PENDING',
+        pickupPointId: dto.pickupPointId ?? null,
       });
       const savedOrder = await manager.save(order);
 
@@ -164,6 +165,7 @@ export class OrdersService {
             order,
             TicketType.TICKET,
             item.ticketCategoryId,
+            i,  // seatIndex pour numérotation
           );
         }
       }
@@ -186,12 +188,24 @@ export class OrdersService {
     order: Order,
     type: TicketType,
     ticketCategoryId: string | null,
+    seatIndex: number = 0,
   ): Promise<void> {
     const ticketId = uuidv4();
     const qrCode = this.qrService.generateTicketQr(ticketId);
+    // 🆕 Sièges auto-assignés : A1, A2, A3...
+    let seatNumber: string | null = null;
+    if (type === TicketType.TICKET && ticketCategoryId) {
+      // Récupérer la catégorie
+      const cat = await manager.findOne('EventTicketCategory', {
+        where: { id: ticketCategoryId },
+      });
+      if (cat && cat.assignSeats) {
+        seatNumber = `A${seatIndex + 1}`;
+      }
+    }
     await manager.query(
-      `INSERT INTO tickets (id, "qrCode", "orderId", "ownerId", "ticketCategoryId", type, status, "passengerName", "passengerPhone", "scanCount", "createdAt", "updatedAt")
-       VALUES ($1, $2, $3, $4, $5, $6::tickets_type_enum, $7::tickets_status_enum, $8, $9, 0, NOW(), NOW())`,
+      `INSERT INTO tickets (id, "qrCode", "orderId", "ownerId", "ticketCategoryId", type, status, "seatNumber", "passengerName", "passengerPhone", "scanCount", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6::tickets_type_enum, $7::tickets_status_enum, $8, $9, $10, 0, NOW(), NOW())`,
       [
         ticketId,
         qrCode,
@@ -200,9 +214,18 @@ export class OrdersService {
         ticketCategoryId,
         type,
         TicketStatus.VALID,
+        seatNumber,
         type === TicketType.TICKET ? order.customerName : null,
         type === TicketType.TICKET ? order.customerPhone : null,
       ],
     );
+
+    // 🆕 Assigner le point de rassemblement au ticket si défini
+    if (order.pickupPointId) {
+      await manager.query(
+        `UPDATE tickets SET "pickupPointId" = $1 WHERE id = $2`,
+        [order.pickupPointId, ticketId],
+      );
+    }
   }
 }

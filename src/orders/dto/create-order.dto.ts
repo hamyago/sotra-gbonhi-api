@@ -52,4 +52,8 @@ export class CreateOrderDto {
 
   @IsEnum(PaymentProvider)
   paymentProvider: PaymentProvider;
+
+  @IsString()
+  @IsOptional()
+  pickupPointId?: string;
 }

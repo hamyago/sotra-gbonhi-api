@@ -75,6 +75,9 @@ export class Order {
   @Column({ type: 'varchar', nullable: true })
   qrCodeData: string | null;
 
+  @Column({ type: 'uuid', nullable: true })
+  pickupPointId: string | null;
+
   @Column({ type: 'timestamp', nullable: true })
   paidAt: Date | null;
 

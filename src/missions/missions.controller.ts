@@ -169,4 +169,14 @@ export class MissionsController {
     }
     return this.missionsService.getMissionPassengers(id);
   }
+
+  @Get('agent/missions/:id/passengers-by-pickup')
+  @Roles('AGENT')
+  async getPassengersByPickup(@Param('id') id: string, @Req() req: any) {
+    const mission = await this.missionsService.findOne(id);
+    if (mission.agentId !== req.user.id) {
+      throw new ForbiddenException('Accès interdit à cette mission');
+    }
+    return this.missionsService.getPassengersByPickup(id);
+  }
 }

@@ -10,6 +10,7 @@ import { CreateMissionDto } from './dto/create-mission.dto';
 import { UpdateMissionDto } from './dto/update-mission.dto';
 import { User, UserRole } from '../users/entities/user.entity';
 import { Bus } from '../buses/entities/bus.entity';
+import { PickupPoint } from '../pickup-points/entities/pickup-point.entity';
 import { Event } from '../events/entities/event.entity';
 import {
   Ticket,
@@ -35,6 +36,8 @@ export class MissionsService {
     private readonly eventsRepository: Repository<Event>,
     @InjectRepository(Ticket)
     private readonly ticketsRepository: Repository<Ticket>,
+    @InjectRepository(PickupPoint)
+    private readonly pickupPointsRepository: Repository<PickupPoint>,
   ) {}
 
   async create(dto: CreateMissionDto): Promise<Mission> {
@@ -180,6 +183,56 @@ export class MissionsService {
     const mission = await this.findOne(id);
     await this.missionsRepository.remove(mission);
     return { message: 'Mission supprimée' };
+  }
+
+  async getPassengersByPickup(missionId: string) {
+    const mission = await this.findOne(missionId);
+
+    const points = await this.pickupPointsRepository.find({
+      where: { missionId },
+      order: { order: 'ASC' },
+    });
+
+    const result = [];
+    for (const point of points) {
+      const tickets = await this.ticketsRepository.find({
+        where: { pickupPointId: point.id },
+        relations: ['order', 'ticketCategory'],
+        order: { seatNumber: 'ASC' },
+      });
+
+      // Filtrer uniquement les billets TICKET (pas transport/parking)
+      const ticketOnly = tickets.filter((t) => t.type === TicketType.TICKET);
+
+      result.push({
+        point: {
+          id: point.id,
+          name: point.name,
+          latitude: Number(point.latitude),
+          longitude: Number(point.longitude),
+          order: point.order,
+          expectedPassengers: point.expectedPassengers,
+        },
+        stats: {
+          total: ticketOnly.length,
+          scanned: ticketOnly.filter((t) => t.status === TicketStatus.USED)
+            .length,
+          pending: ticketOnly.filter((t) => t.status === TicketStatus.VALID)
+            .length,
+        },
+        passengers: ticketOnly.map((t) => ({
+          ticketId: t.id,
+          passengerName: t.passengerName ?? 'Passager',
+          passengerPhone: t.passengerPhone ?? '',
+          seatNumber: t.seatNumber,
+          categoryName: t.ticketCategory?.name ?? 'Standard',
+          categoryColor: t.ticketCategory?.color ?? '#009E49',
+          status: t.status,
+          scannedAt: t.usedAt,
+        })),
+      });
+    }
+    return result;
   }
 
   async getMissionPassengers(missionId: string) {

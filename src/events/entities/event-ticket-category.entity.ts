@@ -45,6 +45,9 @@ export class EventTicketCategory {
   @Column({ type: 'boolean', default: true })
   isActive: boolean;
 
+  @Column({ type: 'boolean', default: false })
+  assignSeats: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 

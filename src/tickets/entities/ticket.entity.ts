@@ -10,6 +10,7 @@ import {
 import { Order } from '../../orders/entities/order.entity';
 import { User } from '../../users/entities/user.entity';
 import { EventTicketCategory } from '../../events/entities/event-ticket-category.entity';
+import { PickupPoint } from '../../pickup-points/entities/pickup-point.entity';
 
 export enum TicketType {
   TICKET = 'TICKET',
@@ -72,6 +73,18 @@ export class Ticket {
 
   @Column({ type: 'uuid', nullable: true })
   usedBy: string | null;
+
+  // 🆕 Point de rassemblement choisi par le client
+  @Column({ type: 'uuid', nullable: true })
+  pickupPointId: string | null;
+
+  @ManyToOne(() => PickupPoint, { nullable: true, eager: false })
+  @JoinColumn({ name: 'pickupPointId' })
+  pickupPoint: PickupPoint | null;
+
+  // 🆕 Point où le ticket a été scanné (traçabilité)
+  @Column({ type: 'uuid', nullable: true })
+  usedByPickupPointId: string | null;
 
   @Column({ type: 'int', default: 0 })
   scanCount: number;

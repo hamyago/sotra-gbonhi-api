@@ -36,6 +36,9 @@ export class PickupPoint {
   @Column({ type: 'int', default: 0 })
   expectedPassengers: number;
 
+  @Column({ type: 'int', default: 0 })
+  estimatedMinutesFromStart: number;
+
   @CreateDateColumn()
   createdAt: Date;
 
