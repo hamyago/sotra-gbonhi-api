@@ -8,10 +8,11 @@ import { AdminUsersController } from './admin-users.controller';
 import { AdminOrdersService } from './admin-orders.service';
 import { AdminOrdersExportService } from './admin-orders.export';
 import { AdminOrdersController } from './admin-orders.controller';
+import { AdminHeatmapController } from './admin-heatmap.controller';
 
 @Module({
   imports: [TypeOrmModule.forFeature([User, Order, Ticket])],
-  controllers: [AdminUsersController, AdminOrdersController],
+  controllers: [AdminUsersController, AdminOrdersController, AdminHeatmapController],
   providers: [AdminUsersService, AdminOrdersService, AdminOrdersExportService],
 })
 export class AdminModule {}

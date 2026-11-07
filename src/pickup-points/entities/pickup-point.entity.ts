@@ -39,6 +39,9 @@ export class PickupPoint {
   @Column({ type: 'int', default: 0 })
   estimatedMinutesFromStart: number;
 
+  @Column({ type: 'timestamp', nullable: true })
+  reachedAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

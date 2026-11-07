@@ -58,7 +58,7 @@ export class TicketsService {
         .getRepository(Ticket)
         .createQueryBuilder('t')
         .setLock('pessimistic_write')
-        .where('t.id = :id', { id: payload.ticketId })
+        .where('t.id::text = :id', { id: payload.ticketId })
         .getOne();
       if (!locked) return { valid: false, message: 'Ticket introuvable' };
 
@@ -118,6 +118,13 @@ export class TicketsService {
     });
     if (!order) throw new NotFoundException('Commande introuvable');
 
+    // ⚠️ Le point de rassemblement n'a de sens QUE si un transport a été acheté
+    if (!order.transportQuantity || order.transportQuantity === 0) {
+      throw new BadRequestException(
+        "Cette commande n'inclut pas de transport. Aucun point de rassemblement n'est requis.",
+      );
+    }
+
     if (point.mission.eventId !== order.eventId) {
       throw new BadRequestException(
         "Ce point n'appartient pas à l'événement du ticket",
@@ -155,15 +162,20 @@ export class TicketsService {
     const point = ticket.pickupPoint;
 
     if (!point) {
+      const order = ticket.order;
+      const hasTransport = (order.transportQuantity ?? 0) > 0;
       return {
         ticket: {
           id: ticket.id,
           status: ticket.status,
           seatNumber: ticket.seatNumber,
         },
-        message: 'Aucun point de rassemblement choisi',
+        message: hasTransport
+          ? 'Aucun point de rassemblement choisi'
+          : "Ce billet n'inclut pas de transport",
         bus: null,
         pickupPoint: null,
+        hasTransport,
       };
     }
 
@@ -172,6 +184,44 @@ export class TicketsService {
       where: { id: point.missionId },
       relations: ['bus', 'agent'],
     });
+
+    // 🆕 Récupérer tous les points de la mission (itinéraire complet)
+    let itinerary: any[] = [];
+    if (mission) {
+      const allPoints = await this.ticketsRepository.manager
+        .getRepository(PickupPoint)
+        .find({
+          where: { missionId: mission.id },
+          order: { order: 'ASC' },
+        });
+      const hasPos = mission.currentLat != null && mission.currentLng != null;
+      itinerary = allPoints.map((p: any) => {
+        let distanceKm: number | null = null;
+        let etaMinutes: number | null = null;
+        if (hasPos) {
+          distanceKm = this.haversine(
+            Number(mission.currentLat),
+            Number(mission.currentLng),
+            Number(p.latitude),
+            Number(p.longitude),
+          );
+          etaMinutes = Math.max(1, Math.round((distanceKm / 40) * 60));
+        }
+        return {
+          id: p.id,
+          name: p.name,
+          latitude: Number(p.latitude),
+          longitude: Number(p.longitude),
+          order: p.order,
+          expectedPassengers: p.expectedPassengers,
+          isReached: p.reachedAt != null,
+          isMyStop: p.id === point.id,
+          distanceKm:
+            distanceKm != null ? Math.round(distanceKm * 10) / 10 : null,
+          etaMinutes,
+        };
+      });
+    }
 
     if (!mission || mission.status !== 'IN_PROGRESS') {
       return {
@@ -211,8 +261,14 @@ export class TicketsService {
       );
       // Vitesse moyenne 40 km/h
       etaMinutes = Math.max(1, Math.round((distanceKm / 40) * 60));
-      isStale =
-        Date.now() - mission.lastPositionUpdate.getTime() > 60_000;
+
+      // 🆕 Calcul isStale fiable via requête SQL (NOW() = UTC PostgreSQL)
+      const staleResult: any = await this.ticketsRepository.query(
+        `SELECT (NOW() - "lastPositionUpdate") < INTERVAL '60 seconds' AS is_fresh
+         FROM missions WHERE id = $1`,
+        [mission.id],
+      );
+      isStale = !staleResult[0]?.is_fresh;
     }
 
     return {
@@ -263,6 +319,10 @@ export class TicketsService {
       distanceKm:
         distanceKm != null ? Math.round(distanceKm * 10) / 10 : null,
       etaMinutes,
+      itinerary,
+      isMyStopReached: point.reachedAt != null,
+      isMyStopNext:
+        itinerary.find((p) => !p.isReached)?.isMyStop === true,
     };
   }
 
@@ -336,7 +396,7 @@ export class TicketsService {
   /// 🆕 Client transfère son ticket à un tiers + choisit le point
   async transfer(
     ticketId: string,
-    dto: { phone: string; pickupPointId: string },
+    dto: { phone: string; pickupPointId?: string },
     currentOwnerId: string,
   ): Promise<Ticket> {
     const ticket = await this.findOne(ticketId);
@@ -360,28 +420,120 @@ export class TicketsService {
       throw new BadRequestException('Vous ne pouvez pas vous transférer le ticket');
     }
 
-    // Vérifier le point
-    const point = await this.pickupPointsRepository.findOne({
-      where: { id: dto.pickupPointId },
-      relations: ['mission'],
-    });
-    if (!point) throw new NotFoundException('Point introuvable');
-
     const order = await this.ordersRepository.findOne({
       where: { id: ticket.orderId },
     });
     if (!order) throw new NotFoundException('Commande introuvable');
-    if (point.mission.eventId !== order.eventId) {
-      throw new BadRequestException(
-        "Ce point n'appartient pas à l'événement du ticket",
-      );
+
+    // Si pas de transport → pas de point obligatoire
+    const hasTransport = (order.transportQuantity ?? 0) > 0;
+
+    if (hasTransport) {
+      if (!dto.pickupPointId) {
+        throw new BadRequestException(
+          'Un point de rassemblement est requis pour ce transfert (transport inclus).',
+        );
+      }
+      const point = await this.pickupPointsRepository.findOne({
+        where: { id: dto.pickupPointId },
+        relations: ['mission'],
+      });
+      if (!point) throw new NotFoundException('Point introuvable');
+      if (point.mission.eventId !== order.eventId) {
+        throw new BadRequestException(
+          "Ce point n'appartient pas à l'événement du ticket",
+        );
+      }
+      ticket.pickupPointId = dto.pickupPointId;
     }
 
     ticket.ownerId = newOwner.id;
-    ticket.pickupPointId = dto.pickupPointId;
     ticket.sharedVia = 'TRANSFER';
     ticket.sharedAt = new Date();
     return this.ticketsRepository.save(ticket);
+  }
+
+  /// 🆕 Vérifier un ticket par code court (fallback caméra)
+  async verifyByCode(code: string): Promise<{
+    valid: boolean;
+    message: string;
+    ticket?: Ticket;
+  }> {
+    try {
+      const cleanCode = code.trim().toUpperCase();
+      const parts = cleanCode.split('-');
+      if (parts.length !== 2) {
+        return { valid: false, message: 'Format de code invalide (ex: VVIP-1234)' };
+      }
+
+      const suffix = parts[1];
+      if (suffix.length !== 4) {
+        return { valid: false, message: 'Code invalide (4 caractères attendus)' };
+      }
+
+      // Chercher le ticket dont l'ID se termine par ces 4 caractères (insensible à la casse)
+      const tickets = await this.ticketsRepository
+        .createQueryBuilder('t')
+        .leftJoinAndSelect('t.order', 'order')
+        .leftJoinAndSelect('t.ticketCategory', 'cat')
+        .where('t.id::text LIKE :suffix', { suffix: `%${suffix.toLowerCase()}` })
+        .limit(10)
+        .getMany();
+
+      if (tickets.length === 0) {
+        return { valid: false, message: 'Aucun ticket trouvé avec ce code' };
+      }
+
+      // Prendre le premier ticket qui matche la catégorie
+      let ticket: Ticket | null = null;
+      for (const t of tickets) {
+        const expectedPrefix =
+          t.ticketCategory?.name?.toUpperCase().substring(0, 4) ??
+          t.type.substring(0, 4).toUpperCase();
+        if (parts[0] === expectedPrefix || parts[0] === 'TKT' || parts[0] === t.type.substring(0, 4).toUpperCase()) {
+          ticket = t;
+          break;
+        }
+      }
+
+      if (!ticket) {
+        // Fallback : prendre le premier si pas de correspondance exacte
+        ticket = tickets[0];
+      }
+
+      if (!ticket) {
+        return { valid: false, message: 'Ticket introuvable' };
+      }
+
+      // Vérifier la commande
+      if (ticket.order?.status !== 'PAID') {
+        return { valid: false, message: 'Commande non payée', ticket };
+      }
+
+      if (ticket.status === TicketStatus.USED) {
+        return { valid: false, message: 'Ticket déjà utilisé', ticket };
+      }
+
+      if (ticket.status === TicketStatus.CANCELLED) {
+        return { valid: false, message: 'Ticket annulé', ticket };
+      }
+
+      // Marquer comme USED
+      ticket.status = TicketStatus.USED;
+      ticket.usedAt = new Date();
+      ticket.scanCount = (ticket.scanCount || 0) + 1;
+      await this.ticketsRepository.save(ticket);
+
+      const cat = ticket.ticketCategory?.name ?? '';
+      const name = ticket.passengerName ?? '';
+      const msg = ['Bienvenue', name, '!', ticket.type, cat ? `- ${cat}` : null]
+        .filter(Boolean).join(' ');
+
+      return { valid: true, message: msg, ticket };
+    } catch (e) {
+      console.error('verifyByCode error:', e);
+      return { valid: false, message: 'Erreur serveur' };
+    }
   }
 
   async share(id: string, userId: string): Promise<Ticket> {

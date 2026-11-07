@@ -77,6 +77,8 @@ export class OrdersService {
         customerName: dto.customerName,
         customerPhone: dto.customerPhone,
         customerEmail: dto.customerEmail ?? null,
+      customerLat: dto.customerLat ?? null,
+      customerLng: dto.customerLng ?? null,
         transportQuantity: dto.transportQuantity,
         parkingQuantity: dto.parkingQuantity,
         totalAmount,

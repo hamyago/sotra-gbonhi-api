@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -25,6 +26,7 @@ export interface MissionFilters {
 
 @Injectable()
 export class MissionsService {
+  private readonly logger = new Logger(MissionsService.name);
   constructor(
     @InjectRepository(Mission)
     private readonly missionsRepository: Repository<Mission>,
@@ -112,6 +114,23 @@ export class MissionsService {
   }
 
   async start(id: string): Promise<Mission> {
+    const mission = await this.findOne(id);
+    if (mission.status !== MissionStatus.SCHEDULED) {
+      throw new BadRequestException("La mission n'est pas en attente");
+    }
+
+    // 🆕 Vérifier que le départ est dans moins de 1h
+    const now = new Date();
+    const departureTime = new Date(mission.departureTime);
+    const oneHourBefore = new Date(
+      departureTime.getTime() - 60 * 60 * 1000,
+    );
+    if (now < oneHourBefore) {
+      throw new BadRequestException(
+        `La course ne peut pas être démarrée avant ${oneHourBefore.toLocaleString('fr-FR')}.`,
+      );
+    }
+
     const result = await this.missionsRepository
       .createQueryBuilder()
       .update(Mission)
@@ -235,6 +254,100 @@ export class MissionsService {
     return result;
   }
 
+  private haversine(
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number,
+  ): number {
+    const R = 6371;
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) *
+        Math.cos(toRad(lat2)) *
+        Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  /// 🆕 Itinéraire complet d'une mission (points ordonnés + ETA + prochain arrêt)
+  async getItinerary(missionId: string) {
+    const mission = await this.findOne(missionId);
+
+    // Récupérer les points dans l'ordre
+    const points = await this.pickupPointsRepository.find({
+      where: { missionId },
+      order: { order: 'ASC' },
+    });
+
+    // Calculer l'ETA pour chaque point (distance bus → point / 40 km/h)
+    const hasPosition =
+      mission.currentLat != null && mission.currentLng != null;
+    let busLat = hasPosition ? Number(mission.currentLat) : null;
+    let busLng = hasPosition ? Number(mission.currentLng) : null;
+
+    const itinerary = points.map((p) => {
+      let distanceKm: number | null = null;
+      let etaMinutes: number | null = null;
+      if (busLat != null && busLng != null) {
+        distanceKm = this.haversine(
+          busLat,
+          busLng,
+          Number(p.latitude),
+          Number(p.longitude),
+        );
+        etaMinutes = Math.max(1, Math.round((distanceKm / 40) * 60));
+      }
+      return {
+        id: p.id,
+        name: p.name,
+        latitude: Number(p.latitude),
+        longitude: Number(p.longitude),
+        order: p.order,
+        expectedPassengers: p.expectedPassengers,
+        estimatedMinutesFromStart: p.estimatedMinutesFromStart,
+        distanceKm: distanceKm != null ? Math.round(distanceKm * 10) / 10 : null,
+        etaMinutes,
+        isReached: false, // TODO: ajouter un champ reachedAt plus tard
+      };
+    });
+
+    // Prochain arrêt = premier point non atteint
+    const nextStop = itinerary.find((p) => !p.isReached) ?? null;
+
+    return {
+      mission: {
+        id: mission.id,
+        name: mission.name,
+        status: mission.status,
+        departureTime: mission.departureTime,
+      },
+      currentPosition: hasPosition
+        ? { latitude: busLat, longitude: busLng }
+        : null,
+      itinerary,
+      nextStop,
+    };
+  }
+
+  /// 🆕 Marquer un arrêt comme atteint
+  async reachStop(missionId: string, pointId: string) {
+    const mission = await this.findOne(missionId);
+    const point = await this.pickupPointsRepository.findOne({
+      where: { id: pointId, missionId },
+    });
+    if (!point) throw new NotFoundException('Point introuvable');
+
+    point.reachedAt = new Date();
+    await this.pickupPointsRepository.save(point);
+
+    this.logger.log(`Mission ${missionId} : arrêt ${point.name} atteint`);
+    return { success: true, point: { id: point.id, name: point.name } };
+  }
+
+  /// 🆕 Passagers groupés par point de rassemblement
   async getMissionPassengers(missionId: string) {
     const mission = await this.findOne(missionId);
 

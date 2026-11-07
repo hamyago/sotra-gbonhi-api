@@ -1,6 +1,7 @@
 import {
   IsString,
   IsInt,
+  IsNumber,
   IsOptional,
   IsEnum,
   IsArray,
@@ -34,6 +35,18 @@ export class CreateOrderDto {
   @IsString()
   @IsOptional()
   customerEmail?: string;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(-90)
+  @Max(90)
+  customerLat?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(-180)
+  @Max(180)
+  customerLng?: number;
 
   @IsArray()
   @ValidateNested({ each: true })

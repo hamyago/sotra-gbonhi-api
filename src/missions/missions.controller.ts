@@ -119,7 +119,18 @@ export class MissionsController {
     if (mission.agentId !== req.user.id) {
       throw new ForbiddenException('Accès interdit à cette mission');
     }
-    return mission;
+    const now = new Date();
+    const departureTime = new Date(mission.departureTime);
+    const oneHourBefore = new Date(departureTime.getTime() - 60 * 60 * 1000);
+    return {
+      ...mission,
+      canStart:
+        mission.status === 'SCHEDULED' && now >= oneHourBefore,
+      timeUntilStart: Math.max(
+        0,
+        Math.floor((oneHourBefore.getTime() - now.getTime()) / 1000),
+      ),
+    };
   }
 
   @Post('agent/missions/:id/start')
@@ -158,6 +169,30 @@ export class MissionsController {
       body.latitude,
       body.longitude,
     );
+  }
+
+  @Get('agent/missions/:id/itinerary')
+  @Roles('AGENT')
+  async getItinerary(@Param('id') id: string, @Req() req: any) {
+    const mission = await this.missionsService.findOne(id);
+    if (mission.agentId !== req.user.id) {
+      throw new ForbiddenException('Accès interdit à cette mission');
+    }
+    return this.missionsService.getItinerary(id);
+  }
+
+  @Post('agent/missions/:id/reach-stop')
+  @Roles('AGENT')
+  async reachStop(
+    @Param('id') id: string,
+    @Body('pointId') pointId: string,
+    @Req() req: any,
+  ) {
+    const mission = await this.missionsService.findOne(id);
+    if (mission.agentId !== req.user.id) {
+      throw new ForbiddenException('Accès interdit à cette mission');
+    }
+    return this.missionsService.reachStop(id, pointId);
   }
 
   @Get('agent/missions/:id/passengers')

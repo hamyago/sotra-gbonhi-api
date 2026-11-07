@@ -45,6 +45,13 @@ export class TicketsController {
     return this.ticketsService.assignSeats(orderId, dto.seats, req.user.id);
   }
 
+  @Get('verify-by-code')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('AGENT')
+  async verifyByCode(@Query('code') code: string) {
+    return this.ticketsService.verifyByCode(code);
+  }
+
   @Get(':id/tracking')
   @UseGuards(JwtAuthGuard)
   async getTracking(

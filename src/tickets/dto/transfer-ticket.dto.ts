@@ -1,4 +1,4 @@
-import { IsString, IsUUID, Matches } from 'class-validator';
+import { IsOptional, IsString, IsUUID, Matches } from 'class-validator';
 
 export class TransferTicketDto {
   @IsString()
@@ -8,5 +8,6 @@ export class TransferTicketDto {
   phone: string;
 
   @IsUUID()
-  pickupPointId: string;
+  @IsOptional()
+  pickupPointId?: string;
 }

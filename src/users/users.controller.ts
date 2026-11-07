@@ -27,6 +27,11 @@ export class UsersController {
     return this.usersService.findById(req.user.id);
   }
 
+  @Get('me/stats')
+  async getStats(@Req() req: any) {
+    return this.usersService.getStats(req.user.id);
+  }
+
   @Patch('me')
   async updateProfile(@Req() req: any, @Body() dto: UpdateProfileDto) {
     return this.usersService.updateProfile(req.user.id, dto);

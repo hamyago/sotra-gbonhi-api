@@ -54,6 +54,13 @@ export class Order {
   @Column({ type: 'varchar', nullable: true })
   customerEmail: string | null;
 
+  // 🆕 GPS du client à l'achat (pour clustering automatique)
+  @Column({ type: 'decimal', precision: 10, scale: 7, nullable: true })
+  customerLat: number | null;
+
+  @Column({ type: 'decimal', precision: 10, scale: 7, nullable: true })
+  customerLng: number | null;
+
   @Column({ type: 'int', default: 0 })
   transportQuantity: number;
 
@@ -87,6 +94,8 @@ export class Order {
   @ManyToOne(() => Event, { eager: true })
   @JoinColumn({ name: 'eventId' })
   event: Event;
+
+  @Column({ type: 'uuid', nullable: true })
 
   @OneToMany(() => OrderItem, (item) => item.order, { cascade: true })
   items: OrderItem[];

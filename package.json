@@ -29,6 +29,7 @@
     "@nestjs/observe": "^0.3.0",
     "@nestjs/passport": "^10.0.3",
     "@nestjs/platform-express": "^11.2.7",
+    "@nestjs/schedule": "^12.0.2",
     "@nestjs/swagger": "^7.4.2",
     "@nestjs/throttler": "^6.7.1",
     "@nestjs/typeorm": "^10.0.2",
